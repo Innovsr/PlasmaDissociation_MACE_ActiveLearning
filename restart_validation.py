@@ -665,10 +665,21 @@ def main():
     with inputs_file.open() as f:
 
         inputs = json.load(f)
-
-    target_steps = int(
-        inputs["Propagation"]["Tot_timesteps"]
+    
+    nsteps = int(
+    inputs["Propagation"]["Tot_timesteps"]
     )
+    
+    dt = float(
+        inputs["Propagation"]["Timestep"]
+    )
+    
+    target_steps = nsteps * dt
+
+    #target_steps = (
+    #int(inputs["Propagation"]["Tot_timesteps"])
+    #* float(inputs["Propagation"]["Timestep"])
+    #)   
 
     # --------------------------------------------------------
     # Print controller information
