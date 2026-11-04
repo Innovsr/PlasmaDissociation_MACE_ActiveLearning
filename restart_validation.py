@@ -1,7 +1,60 @@
 #!/usr/bin/env python3
 
+"""
+Automatic validation/restart controller for Stage 1.
+
+Workflow:
+
+    validation array
+          |
+          v
+    restart_validation.py
+          |
+          +---- all trajectories complete
+          |             |
+          |             v
+          |       finalize validation
+          |             |
+          |             v
+          |       submit MACE training
+          |
+          +---- incomplete trajectories
+                        |
+                        v
+                  restart array
+                        |
+                        v
+                restart_validation.py
+                        |
+                       ...
+
+The controller is data-driven.
+
+A trajectory is considered complete only when the latest common
+timestep in:
+
+    xyz.all
+    momenta.all
+    forces.all
+    time.all
+
+has reached:
+
+    Propagation.Tot_timesteps
+
+No .bomd_complete file is used.
+
+Only TIMEOUT trajectories are automatically restarted.
+
+FAILED / CANCELLED trajectories are not automatically restarted.
+"""
+
+
+from __future__ import annotations
+
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,12 +66,13 @@ from pathlib import Path
 
 def get_array_states(array_job_id):
     """
-    Return the SLURM state of each array task.
+    Return SLURM state for each array task.
 
     Example:
-        9029631_1  COMPLETED
-        9029631_2  TIMEOUT
-        ...
+
+        9029631_1    COMPLETED
+        9029631_2    TIMEOUT
+        9029631_3    COMPLETED
     """
 
     result = subprocess.run(
@@ -27,7 +81,7 @@ def get_array_states(array_job_id):
             "-n",
             "-P",
             "-j",
-            array_job_id,
+            str(array_job_id),
             "--format=JobID,State",
         ],
         capture_output=True,
@@ -47,8 +101,12 @@ def get_array_states(array_job_id):
         if len(parts) != 2:
             continue
 
-        jobid = parts[0]
-        state = parts[1].split()[0]
+        jobid = parts[0].strip()
+        state = parts[1].strip().split()[0]
+
+        # Ignore batch/extern subjobs
+        if "." in jobid:
+            continue
 
         states[jobid] = state
 
@@ -61,12 +119,7 @@ def get_array_states(array_job_id):
 
 def check_timestep_file(filename):
     """
-    Read timestep numbers from one trajectory output file.
-
-    Only lines containing:
-        Timestep:
-
-    are considered.
+    Return all timestep numbers found in a trajectory file.
     """
 
     timesteps = set()
@@ -74,7 +127,10 @@ def check_timestep_file(filename):
     if not filename.exists():
         return timesteps
 
-    with filename.open() as f:
+    with filename.open(
+        "r",
+        errors="replace"
+    ) as f:
 
         for line in f:
 
@@ -84,10 +140,13 @@ def check_timestep_file(filename):
             parts = line.split()
 
             try:
-                timestep = int(parts[1])
+                timestep = int(float(parts[1]))
                 timesteps.add(timestep)
 
-            except (ValueError, IndexError):
+            except (
+                ValueError,
+                IndexError
+            ):
                 continue
 
     return timesteps
@@ -99,15 +158,14 @@ def check_timestep_file(filename):
 
 def get_common_timestep(repdir):
     """
-    Find the latest timestep which exists in ALL four files:
+    Find the latest timestep present in ALL required files.
 
         xyz.all
         momenta.all
         forces.all
         time.all
 
-    A timestep is considered valid for restart only if it
-    occurs in all four files.
+    This is the only timestep used to determine completion.
     """
 
     output = repdir / "output"
@@ -128,7 +186,15 @@ def get_common_timestep(repdir):
         output / "time.all"
     )
 
-    common = xyz & momenta & forces & times
+    if not xyz or not momenta or not forces or not times:
+        return None
+
+    common = (
+        xyz
+        & momenta
+        & forces
+        & times
+    )
 
     if not common:
         return None
@@ -137,18 +203,111 @@ def get_common_timestep(repdir):
 
 
 # ============================================================
-# FINALIZATION
+# CHECK ALL TRAJECTORIES
 # ============================================================
 
-def finalize_validation(run_root):
+def inspect_all_trajectories(
+    run_root,
+    target_steps,
+):
     """
-    Combine completed validation trajectories into validation.extxyz.
+    Inspect every repetition directory.
+
+    Returns:
+
+        complete_tasks
+        incomplete_tasks
+        missing_tasks
     """
 
-    package_root = Path(__file__).resolve().parent
+    repetitions = (
+        run_root
+        / "repetitions"
+    )
+
+    complete = []
+    incomplete = []
+    missing = []
+
+    for repdir in sorted(
+        repetitions.glob("rep-*"),
+        key=lambda p: int(
+            p.name.split("-")[1]
+        )
+    ):
+
+        try:
+            task_id = int(
+                repdir.name.split("-")[1]
+            )
+        except (
+            ValueError,
+            IndexError
+        ):
+            continue
+
+        common = get_common_timestep(
+            repdir
+        )
+
+        if common is None:
+
+            missing.append(task_id)
+
+            print(
+                f"rep-{task_id}: "
+                "NO COMMON TIMESTEP"
+            )
+
+        elif common >= target_steps:
+
+            complete.append(task_id)
+
+            print(
+                f"rep-{task_id}: "
+                f"COMPLETE "
+                f"(common timestep={common}, "
+                f"target={target_steps})"
+            )
+
+        else:
+
+            incomplete.append(task_id)
+
+            print(
+                f"rep-{task_id}: "
+                f"INCOMPLETE "
+                f"(common timestep={common}, "
+                f"target={target_steps})"
+            )
+
+    return (
+        complete,
+        incomplete,
+        missing,
+    )
+
+
+# ============================================================
+# FINALIZE VALIDATION
+# ============================================================
+
+def finalize_validation(
+    run_root
+):
+    """
+    Convert the completed BOMD trajectories into validation.extxyz.
+    """
+
+    package_root = (
+        Path(__file__)
+        .resolve()
+        .parent
+    )
 
     finalize_script = (
-        package_root / "finalize_validation.py"
+        package_root
+        / "finalize_validation.py"
     )
 
     output_file = (
@@ -162,8 +321,15 @@ def finalize_validation(run_root):
         exist_ok=True
     )
 
-    print("Finalizing validation trajectories...")
-    print(f"Output: {output_file}")
+    print()
+    print("=" * 72)
+    print("FINALIZING VALIDATION DATA")
+    print("=" * 72)
+
+    print(
+        "Output:",
+        output_file
+    )
 
     subprocess.run(
         [
@@ -177,11 +343,99 @@ def finalize_validation(run_root):
         check=True,
     )
 
-    print("Validation finalization completed.")
+    print(
+        "Validation finalization completed."
+    )
+
+    return output_file
 
 
 # ============================================================
-# RESTART SCRIPT
+# SUBMIT MACE TRAINING
+# ============================================================
+
+def submit_training(
+    run_root,
+    package_root,
+):
+    """
+    Submit the MACE model-update controller after ALL
+    validation trajectories are complete.
+
+    Uses the existing:
+
+        02_model_update/run_model_update.sh
+
+    """
+
+    training_script = (
+        package_root
+        / "02_model_update"
+        / "run_model_update.sh"
+    )
+
+    if not training_script.exists():
+
+        raise FileNotFoundError(
+            "MACE training controller not found:\n"
+            f"{training_script}"
+        )
+
+    print()
+    print("=" * 72)
+    print("ALL VALIDATION TRAJECTORIES COMPLETE")
+    print("=" * 72)
+
+    print(
+        "Submitting MACE training controller:"
+    )
+
+    print(
+        training_script
+    )
+
+    # Submit training as a separate Slurm job.
+    #
+    # The validator has already performed the completion check,
+    # so training is submitted only from this successful path.
+
+    result = subprocess.run(
+        [
+            "sbatch",
+            "--parsable",
+            str(training_script),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    training_job_id = (
+        result.stdout
+        .strip()
+        .split(";")[0]
+    )
+
+    print(
+        "MACE training job submitted:",
+        training_job_id
+    )
+
+    # Save the job ID for easy tracking.
+    training_id_file = (
+        run_root
+        / "training_job_id.txt"
+    )
+
+    training_id_file.write_text(
+        training_job_id + "\n"
+    )
+
+    return training_job_id
+
+
+# ============================================================
+# CREATE RESTART SCRIPT
 # ============================================================
 
 def create_restart_script(
@@ -190,19 +444,27 @@ def create_restart_script(
     restart_tasks,
 ):
     """
-    Create a SLURM array containing only the trajectories
-    that timed out and are still incomplete.
+    Create a Slurm array containing ONLY incomplete
+    trajectories.
+
+    The trajectory itself determines the restart point.
     """
 
     array_spec = ",".join(
-        str(x) for x in restart_tasks
+        str(x)
+        for x in restart_tasks
     )
 
     restart_script = (
-        run_root / "validation_restart.sh"
+        run_root
+        / "validation_restart.sh"
     )
 
-    package_root = Path(__file__).resolve().parent
+    package_root = (
+        Path(__file__)
+        .resolve()
+        .parent
+    )
 
     main_py = (
         package_root
@@ -250,13 +512,109 @@ export BOMD_RESTART=1
 
 cd "{run_root}/repetitions/rep-$SLURM_ARRAY_TASK_ID"
 
+echo "=========================================="
+echo "VALIDATION RESTART"
+echo "=========================================="
+echo "Array task: $SLURM_ARRAY_TASK_ID"
+echo "Run root: {run_root}"
+echo "Restart directory: $(pwd)"
+echo "Python: $PYTHON"
+echo "=========================================="
+
 exec "$PYTHON" "{main_py}"
 """
     )
 
-    restart_script.chmod(0o755)
+    restart_script.chmod(
+        0o755
+    )
 
     return restart_script
+
+
+# ============================================================
+# SUBMIT NEXT VALIDATION CHECKER
+# ============================================================
+
+def submit_next_checker(
+    restart_job_id,
+    run_root,
+    package_root,
+):
+    """
+    Submit another validation checker after the newly submitted
+    restart array.
+
+    This is what makes the restart system continuous.
+
+        restart array
+              |
+              v
+        validation checker
+              |
+              v
+        restart array
+              |
+              v
+             ...
+
+    """
+
+    checker_script = (
+        package_root
+        / "01_validation"
+        / "restart_validation.sh"
+    )
+
+    if not checker_script.exists():
+
+        raise FileNotFoundError(
+            "Validation checker script not found:\n"
+            f"{checker_script}"
+        )
+
+    command = [
+        "sbatch",
+        "--parsable",
+
+        "--dependency=afterany:"
+        + str(restart_job_id),
+
+        "--export=ALL,"
+        "VALIDATION_ARRAY_JOB_ID="
+        + str(restart_job_id),
+
+        str(checker_script),
+
+        str(run_root),
+
+        str(package_root),
+    ]
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    checker_job_id = (
+        result.stdout
+        .strip()
+        .split(";")[0]
+    )
+
+    print(
+        "Next validation checker submitted:",
+        checker_job_id
+    )
+
+    print(
+        "Checker dependency:",
+        restart_job_id
+    )
+
+    return checker_job_id
 
 
 # ============================================================
@@ -279,18 +637,69 @@ def main():
 
     args = parser.parse_args()
 
-    run_root = Path(args.run_root)
+    run_root = Path(
+        args.run_root
+    ).resolve()
+
+    package_root = (
+        Path(__file__)
+        .resolve()
+        .parent
+    )
 
     # --------------------------------------------------------
-    # Read runtime input
+    # Load runtime input
     # --------------------------------------------------------
 
-    with open(run_root / "inputs.json") as f:
+    inputs_file = (
+        run_root
+        / "inputs.json"
+    )
+
+    if not inputs_file.exists():
+
+        raise FileNotFoundError(
+            f"Missing inputs.json: {inputs_file}"
+        )
+
+    with inputs_file.open() as f:
+
         inputs = json.load(f)
 
     target_steps = int(
         inputs["Propagation"]["Tot_timesteps"]
     )
+
+    # --------------------------------------------------------
+    # Print controller information
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PLASMA VALIDATION / RESTART CONTROLLER")
+    print("=" * 72)
+
+    print(
+        "Run root:",
+        run_root
+    )
+
+    print(
+        "Package root:",
+        package_root
+    )
+
+    print(
+        "Previous array job:",
+        args.array_job
+    )
+
+    print(
+        "Target timestep:",
+        target_steps
+    )
+
+    print("=" * 72)
 
     # --------------------------------------------------------
     # Read SLURM states
@@ -300,6 +709,25 @@ def main():
         args.array_job
     )
 
+    print()
+    print(
+        "Previous array states:"
+    )
+
+    for jobid, state in states.items():
+
+        print(
+            f"    {jobid}: {state}"
+        )
+
+    # --------------------------------------------------------
+    # Determine whether any task failed
+    # --------------------------------------------------------
+
+    failed_tasks = []
+
+    cancelled_tasks = []
+
     timeout_tasks = []
 
     for jobid, state in states.items():
@@ -307,55 +735,178 @@ def main():
         if "_" not in jobid:
             continue
 
-        # Ignore .batch/.extern records.
-        if "." in jobid:
-            continue
-
-        if state != "TIMEOUT":
-            continue
-
         try:
+
             task_id = int(
                 jobid.rsplit("_", 1)[1]
             )
+
         except ValueError:
+
             continue
 
-        timeout_tasks.append(task_id)
+        if state == "TIMEOUT":
+
+            timeout_tasks.append(
+                task_id
+            )
+
+        elif state in {
+            "FAILED",
+            "OUT_OF_MEMORY",
+            "NODE_FAIL",
+            "PREEMPTED",
+        }:
+
+            failed_tasks.append(
+                (task_id, state)
+            )
+
+        elif state == "CANCELLED":
+
+            cancelled_tasks.append(
+                task_id
+            )
 
     timeout_tasks.sort()
 
+    print()
     print(
-        "TIMEOUT trajectories:",
+        "TIMEOUT tasks:",
         timeout_tasks
     )
 
+    print(
+        "FAILED tasks:",
+        failed_tasks
+    )
+
+    print(
+        "CANCELLED tasks:",
+        cancelled_tasks
+    )
+
     # --------------------------------------------------------
-    # NO TIMEOUT
+    # IMPORTANT:
     #
-    # This means every trajectory finished without timeout.
-    # DO NOT restart anything.
+    # Do NOT immediately finalize simply because there is
+    # no TIMEOUT.
     #
-    # Instead finalize the validation data.
+    # We ALWAYS inspect the actual trajectory files.
     # --------------------------------------------------------
 
-    if not timeout_tasks:
+    (
+        complete_tasks,
+        incomplete_tasks,
+        missing_tasks,
+    ) = inspect_all_trajectories(
+        run_root,
+        target_steps,
+    )
 
+    print()
+    print("=" * 72)
+    print("TRAJECTORY SUMMARY")
+    print("=" * 72)
+
+    print(
+        "Complete:",
+        complete_tasks
+    )
+
+    print(
+        "Incomplete:",
+        incomplete_tasks
+    )
+
+    print(
+        "Missing/no common timestep:",
+        missing_tasks
+    )
+
+    # ========================================================
+    # CASE 1
+    #
+    # ALL TRAJECTORIES COMPLETE
+    #
+    # This is the ONLY condition that allows training.
+    # ========================================================
+
+    if (
+        len(complete_tasks)
+        == int(inputs["HPC"]["repeats"])
+    ):
+
+        print()
         print(
-            "No TIMEOUT detected."
+            "ALL TRAJECTORIES HAVE REACHED "
+            "THE REQUESTED FINAL TIMESTEP."
+        )
+
+        # ----------------------------------------------------
+        # Finalize validation dataset
+        # ----------------------------------------------------
+
+        validation_file = finalize_validation(
+            run_root
+        )
+
+        # ----------------------------------------------------
+        # Prevent accidental duplicate training submission
+        # ----------------------------------------------------
+
+        training_id_file = (
+            run_root
+            / "training_job_id.txt"
+        )
+
+        if training_id_file.exists():
+
+            existing_id = (
+                training_id_file
+                .read_text()
+                .strip()
+            )
+
+            print()
+            print(
+                "Training has already been submitted."
+            )
+
+            print(
+                "Existing training job:",
+                existing_id
+            )
+
+            return 0
+
+        # ----------------------------------------------------
+        # Submit training
+        # ----------------------------------------------------
+
+        submit_training(
+            run_root,
+            package_root,
+        )
+
+        print()
+        print(
+            "VALIDATION WORKFLOW COMPLETE."
         )
 
         print(
-            "No automatic restart required."
+            "MACE TRAINING HAS BEEN INITIATED."
         )
-
-        finalize_validation(run_root)
 
         return 0
 
-    # --------------------------------------------------------
-    # Examine only TIMEOUT trajectories
-    # --------------------------------------------------------
+    # ========================================================
+    # CASE 2
+    #
+    # Some trajectories are incomplete.
+    #
+    # Only TIMEOUT trajectories are automatically restarted.
+    # ========================================================
 
     restart_tasks = []
 
@@ -371,60 +922,115 @@ def main():
             repdir
         )
 
+        print()
         print(
-            f"rep-{task_id}: "
-            f"latest common timestep = {common}"
+            f"Checking TIMEOUT rep-{task_id}: "
+            f"common timestep = {common}"
         )
 
-        # No common timestep means we cannot safely restart.
         if common is None:
 
             print(
                 f"rep-{task_id}: "
-                "NO common timestep found."
-            )
-
-            print(
-                "This trajectory will NOT be restarted "
-                "from timestep 0."
+                "No safe common timestep. "
+                "Will NOT restart automatically."
             )
 
             continue
 
-        # The target is already reached.
         if common >= target_steps:
 
             print(
                 f"rep-{task_id}: "
-                "target timestep already reached."
+                "already complete."
             )
 
             continue
 
-        # This TIMEOUT trajectory is incomplete.
-        restart_tasks.append(task_id)
+        restart_tasks.append(
+            task_id
+        )
 
-    # --------------------------------------------------------
-    # Nothing needs restarting
-    # --------------------------------------------------------
+    restart_tasks.sort()
+
+    # ========================================================
+    # CASE 3
+    #
+    # Incomplete trajectories exist but none are safely
+    # restartable TIMEOUT trajectories.
+    #
+    # Do NOT train.
+    # ========================================================
 
     if not restart_tasks:
 
+        print()
+        print("=" * 72)
+        print("NO SAFE AUTOMATIC RESTART AVAILABLE")
+        print("=" * 72)
+
+        if failed_tasks:
+
+            print(
+                "Some trajectories failed:"
+            )
+
+            for task_id, state in failed_tasks:
+
+                print(
+                    f"    rep-{task_id}: {state}"
+                )
+
+        if cancelled_tasks:
+
+            print(
+                "Some trajectories were cancelled:"
+            )
+
+            for task_id in cancelled_tasks:
+
+                print(
+                    f"    rep-{task_id}: CANCELLED"
+                )
+
+        if missing_tasks:
+
+            print(
+                "Some trajectories have no valid "
+                "common timestep:"
+            )
+
+            for task_id in missing_tasks:
+
+                print(
+                    f"    rep-{task_id}"
+                )
+
+        print()
         print(
-            "No incomplete TIMEOUT trajectories "
-            "require restarting."
+            "Training will NOT be submitted."
         )
 
-        finalize_validation(run_root)
+        print(
+            "The workflow requires ALL trajectories "
+            "to reach the target timestep."
+        )
 
-        return 0
+        return 2
 
-    # --------------------------------------------------------
-    # Submit restart array
-    # --------------------------------------------------------
+    # ========================================================
+    # CASE 4
+    #
+    # Restart incomplete TIMEOUT trajectories.
+    # ========================================================
+
+    print()
+    print("=" * 72)
+    print("AUTOMATIC RESTART")
+    print("=" * 72)
 
     print(
-        "Trajectories to restart:",
+        "Restarting trajectories:",
         restart_tasks
     )
 
@@ -434,22 +1040,108 @@ def main():
         restart_tasks,
     )
 
-    restart_job = subprocess.check_output(
+    print(
+        "Restart script:",
+        restart_script
+    )
+
+    # --------------------------------------------------------
+    # Submit restart array
+    # --------------------------------------------------------
+
+    result = subprocess.run(
         [
             "sbatch",
             "--parsable",
             str(restart_script),
         ],
+        capture_output=True,
         text=True,
-    ).strip().split(";")[0]
+        check=True,
+    )
+
+    restart_job = (
+        result.stdout
+        .strip()
+        .split(";")[0]
+    )
 
     print(
         "Restart array submitted:",
         restart_job
     )
 
+    # --------------------------------------------------------
+    # CRITICAL:
+    #
+    # Submit another checker after the restart array.
+    # --------------------------------------------------------
+
+    next_checker = submit_next_checker(
+        restart_job,
+        run_root,
+        package_root,
+    )
+
+    print()
+    print("=" * 72)
+    print("RESTART CHAIN CONTINUED")
+    print("=" * 72)
+
+    print(
+        "Restart array:",
+        restart_job
+    )
+
+    print(
+        "Next checker:",
+        next_checker
+    )
+
+    print()
+    print(
+        "The next checker will repeat:"
+    )
+
+    print(
+        "    check"
+    )
+
+    print(
+        "    -> restart if necessary"
+    )
+
+    print(
+        "    -> check again"
+    )
+
+    print(
+        "    -> continue until all trajectories "
+        "are complete"
+    )
+
     return 0
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
-    main()
+
+    try:
+
+        sys.exit(
+            main()
+        )
+
+    except Exception as exc:
+
+        print(
+            "ERROR:",
+            exc,
+            file=sys.stderr
+        )
+
+        sys.exit(1)
+
