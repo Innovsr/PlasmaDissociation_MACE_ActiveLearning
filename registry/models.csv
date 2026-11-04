@@ -1,0 +1,1 @@
+model_id,parent_model,best_epoch,molecules,temperature_range,train_size,validation_size,energy_rmse_mev_atom,force_rmse_mev_A,relative_force_rmse_percent,training_archive,validation_archive,model_file,status,best_for,notes

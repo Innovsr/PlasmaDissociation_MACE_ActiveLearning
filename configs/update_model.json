@@ -1,0 +1,48 @@
+{
+    "source_model": "V005",
+    "old_epoch": 6,
+    "HPC": {
+        "account": "chmdsh_project",
+        "Runfolder": "HFC236ea_active_learning",
+        "cores": 32,
+        "hours": 48,
+        "memory": 200
+    },
+    "training_update": {
+        "old_data_percent": 80,
+        "new_data_percent": 20,
+        "total_configurations": 10000
+    },
+    "validation": {
+        "force_rmse_target_mev_A": 100.0,
+        "energy_rmse_target_mev_atom": 100.0,
+        "high_error_force_threshold_mev_A": 100.0,
+        "max_new_configurations": 2000
+    },
+    "mace": {
+        "command": "mace_run_train",
+        "device": "cpu",
+        "energy_key": "REF_energy",
+        "forces_key": "REF_forces",
+        "model": "MACE",
+        "r_max": 5.0,
+        "radial_type": "bessel",
+        "num_radial_basis": 8,
+        "num_cutoff_basis": 5,
+        "max_ell": 2,
+        "correlation": 3,
+        "num_interactions": 3,
+        "hidden_irreps": "128x0e + 128x1o + 128x2e",
+        "batch_size": 8,
+        "valid_batch_size": 8,
+        "energy_weight": 1.0,
+        "forces_weight": 2.0,
+        "lr": 0.0002,
+        "max_num_epochs": 50,
+        "patience": 3,
+        "eval_interval": 1,
+        "default_dtype": "float64",
+        "seed": 42
+    },
+    "attempt_id": "attempt_001"
+}

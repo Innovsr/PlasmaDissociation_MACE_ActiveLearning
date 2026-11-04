@@ -1,0 +1,43 @@
+{
+    "HPC": {
+        "account": "chmdsh_project",
+        "Runfolder": "HFC236ea_active_learning_2",
+        "repeats": 30,
+        "cores": 8,
+        "hours": 1,
+        "memory": 16
+    },
+    "Molecule_data": {
+        "Molecule": "CF3-CHF-CHF2_ea",
+        "Multiplicity": 3,
+        "Temp": 2000
+    },
+    "Elec_structure": {
+        "method": "QChem"
+    },
+    "Propagation": {
+        "Timestep": 10,
+        "Tot_timesteps": 100
+    },
+    "Trajectory_selection": {
+        "enabled": 1,
+        "momentum_samples": 100000,
+        "categories": [
+            {
+                "name": "C-C",
+                "bonds": [],
+                "select": 10
+            },
+            {
+                "name": "C-F",
+                "bonds": [],
+                "select": 10
+            },
+            {
+                "name": "C-H",
+                "bonds": [],
+                "select": 10
+            }
+        ]
+    }
+}

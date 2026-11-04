@@ -1,0 +1,25 @@
+{
+    "model": "V005",
+    "HPC": {
+        "account": "chmdsh_project",
+        "Runfolder": "HFC236ea_active_learning",
+        "repeats": 100,
+        "cores": 80,
+        "hours": 48,
+        "memory": 128
+    },
+    "Molecule_data": {
+        "Molecule": "CF3-CHF-CHF2_ea",
+        "Multiplicity": 3,
+        "Temp": 400
+    },
+    "Propagation": {
+        "Timestep": 10,
+        "Tot_timesteps": 100000
+    },
+    "MACE": {
+        "model_file": "AUTO",
+        "device": "cpu",
+        "default_dtype": "float64"
+    }
+}

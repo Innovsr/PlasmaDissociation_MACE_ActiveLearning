@@ -1,0 +1,11 @@
+Validation array job: 9040391
+Run root: /mnt/scratch/lgjs798/HFC236ea_active_learning_1/01_validation
+Package root: /users/lgjs798/PlasmaDissociation_MACE_ActiveLearning_v2
+Python: /users/lgjs798/.conda/envs/plasma/bin/python
+Wrote 647 configurations to /mnt/scratch/lgjs798/HFC236ea_active_learning_1/01_validation/validation/validation.extxyz
+TIMEOUT trajectories: []
+No TIMEOUT detected.
+No automatic restart required.
+Finalizing validation trajectories...
+Output: /mnt/scratch/lgjs798/HFC236ea_active_learning_1/01_validation/validation/validation.extxyz
+Validation finalization completed.

@@ -1,0 +1,17 @@
+Validation controller started
+ROOT = /users/lgjs798/PlasmaDissociation_MACE_ActiveLearning_v2
+PYTHON = /users/lgjs798/.conda/envs/plasma/bin/python
+Python: /users/lgjs798/.conda/envs/plasma/bin/python
+NumPy: 2.4.3
+Selected validation trajectories: 30
+Validation setup job: 9040905
+Validation array job: 9040906
+Validation restart checker job: 9040907
+Validation directory: /mnt/scratch/lgjs798/HFC236ea_active_learning_2/01_validation
+
+Validation workflow submitted:
+    Setup job:        9040905
+    Validation array: 9040906
+    Restart checker:  9040907
+
+The restart checker will run automatically after the validation array finishes.
