@@ -4,8 +4,8 @@
     "HPC": {
         "account": "chmdsh_project",
         "Runfolder": "HFC236ea_active_learning",
-        "cores": 32,
-        "hours": 48,
+        "cores": 16,
+	"hours": "2-00:00:00",
         "memory": 200
     },
     "training_update": {
@@ -21,7 +21,7 @@
     },
     "mace": {
         "command": "mace_run_train",
-        "device": "cpu",
+        "device": "cuda",
         "energy_key": "REF_energy",
         "forces_key": "REF_forces",
         "model": "MACE",

@@ -11,7 +11,7 @@
     "Molecule_data": {
         "Molecule": "CF3-CHF-CHF2_ea",
         "Multiplicity": 3,
-        "Temp": 2000
+        "Temp": 5000
     },
 
     "Elec_structure": {

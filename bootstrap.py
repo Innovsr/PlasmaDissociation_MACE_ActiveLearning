@@ -66,9 +66,12 @@ def create_runtime_files(cfg, stage):
         "enabled": 0
     }
 
-    (stage / "setup" / "validation.json").write_text(
-        json.dumps(setup_cfg, indent=4)
+    (stage / "validation.json").write_text(
+    json.dumps(setup_cfg, indent=4)
     )
+    #(stage / "setup" / "validation.json").write_text(
+    #    json.dumps(setup_cfg, indent=4)
+    #)
 
     # main.py/global_vars.py reads ../../inputs.json
     (stage / "inputs.json").write_text(
