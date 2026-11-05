@@ -10,7 +10,7 @@ import argparse, re
 from pathlib import Path
 
 FILES = ("xyz.all", "momenta.all", "forces.all", "time.all")
-TS_RE = re.compile(r"^\s*Timestep:\s*(-?\d+)\s*$")
+TS_RE = re.compile(r"^\s*Timestep:\s*(-?\d+(?:\.\d+)?)\s*$")
 
 def timesteps(path: Path) -> set[int]:
     out=set()
@@ -20,7 +20,7 @@ def timesteps(path: Path) -> set[int]:
         for line in f:
             m=TS_RE.match(line)
             if m:
-                out.add(int(m.group(1)))
+                out.add(float(m.group(1)))
     return out
 
 def latest_common(repdir: Path) -> int | None:

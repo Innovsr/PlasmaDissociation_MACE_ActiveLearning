@@ -32,7 +32,7 @@
 
     "mace": {
         "command": "mace_run_train",
-        "device": "cpu",
+        "device": "cuda",
         "energy_key": "REF_energy",
         "forces_key": "REF_forces",
         "model": "MACE",

@@ -272,22 +272,76 @@ def main():
         stage,
         setup_job
     )
+    
+    # ------------------------------------------------------------
+    # Submit automatic trajectory controller.
+    #
+    # The controller waits for the BOMD array, checks every
+    # trajectory, restarts incomplete trajectories, checks again,
+    # and launches GPU MACE training only when ALL trajectories
+    # are genuinely complete.
+    # ------------------------------------------------------------
 
-    print(
-        f"Bootstrap BOMD array: {bomd_job}"
+    controller_script = (
+        ROOT / "00_bootstrap" / "bootstrap_controller.sh"
     )
+
+    controller_job = subprocess.check_output(
+        [
+            "sbatch",
+            "--parsable",
+            "--account",
+            cfg["HPC"]["account"],
+            "--dependency",
+            f"afterany:{bomd_job}",
+            str(controller_script),
+            str(stage),
+            str(ROOT),
+            str(Path(args.config).resolve()),
+            str(bomd_job)
+        ],
+        text=True
+    ).strip().split(";")[0]
 
     print("")
+    print("BOMD trajectories submitted.")
+    print("")
     print(
-        "BOMD trajectories submitted."
+        f"Automatic bootstrap controller: {controller_job}"
+    )
+    print("")
+    print(
+        "The controller will:"
     )
     print(
-        "After they finish, run:"
+        "  1. Check all trajectories."
     )
     print(
-        f"  python bootstrap_train.py "
-        f"--config {args.config}"
+        "  2. Restart incomplete/timed-out trajectories."
     )
+    print(
+        "  3. Check again after every restart."
+    )
+    print(
+        "  4. Launch MACE training on GPU only when ALL "
+        "trajectories are complete."
+    )
+
+    #print(
+    #    f"Bootstrap BOMD array: {bomd_job}"
+    #)
+
+    #print("")
+    #print(
+    #    "BOMD trajectories submitted."
+    #)
+    #print(
+    #    "After they finish, run:"
+    #)
+    #print(
+    #    f"  python bootstrap_train.py "
+    #    f"--config {args.config}"
+    #)
 
 
 if __name__ == "__main__":
