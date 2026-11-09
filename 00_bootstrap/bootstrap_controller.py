@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +18,9 @@ def load_config(path):
 
 
 def submit(cmd):
+    """
+    Submit a Slurm command and return the job ID.
+    """
     result = subprocess.check_output(
         cmd,
         text=True
@@ -28,61 +29,60 @@ def submit(cmd):
     return result.split(";")[0]
 
 
-def get_sacct_states(job_id):
+def get_sacct_states(job_id, repetitions):
     """
-    Return a dictionary:
+    Query each Slurm array task explicitly.
 
-        {array_task_id: slurm_state}
+    On Aire, sacct does not reliably expose the array task number
+    in JobIDRaw. However, querying <job_id>_<rep> directly works.
 
     Example:
+
+        sacct -j 9182236_5
+
+    returns the historical state for array task 5.
+
+    Returns:
 
         {
             1: "COMPLETED",
             2: "COMPLETED",
-            5: "TIMEOUT"
+            5: "TIMEOUT",
+            ...
         }
     """
 
-    cmd = [
-        "sacct",
-        "-X",
-        "-n",
-        "-P",
-        "-j",
-        str(job_id),
-        "--format=JobIDRaw,State"
-    ]
-
-    output = subprocess.check_output(
-        cmd,
-        text=True
-    )
-
     states = {}
 
-    for line in output.splitlines():
+    for rep in repetitions:
 
-        line = line.strip()
+        cmd = [
+            "sacct",
+            "-j",
+            f"{job_id}_{rep}",
+            "-X",
+            "-n",
+            "-P",
+            "--format=State",
+        ]
 
-        if not line:
-            continue
+        try:
 
-        parts = line.split("|")
+            output = subprocess.check_output(
+                cmd,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
 
-        if len(parts) != 2:
-            continue
+            if output:
+                state = output.splitlines()[0].strip()
+                states[rep] = state
+            else:
+                states[rep] = "UNKNOWN"
 
-        jobid = parts[0]
-        state = parts[1].split()[0]
+        except subprocess.CalledProcessError:
 
-        match = re.search(
-            r"_(\d+)$",
-            jobid
-        )
-
-        if match:
-            rep = int(match.group(1))
-            states[rep] = state
+            states[rep] = "UNKNOWN"
 
     return states
 
@@ -126,6 +126,16 @@ def write_restart_array(
     stage,
     repetitions
 ):
+    """
+    Create a Slurm array containing ONLY the incomplete
+    TIMEOUT trajectories.
+
+    No BOMD_RESTART=1 is used.
+
+    The normal BOMD code is allowed to detect the existing
+    trajectory files and continue from the latest common
+    timestep.
+    """
 
     hpc = cfg["HPC"]
 
@@ -172,23 +182,24 @@ cd "{stage}/repetitions/rep-$SLURM_ARRAY_TASK_ID"
 echo "=============================================="
 echo "BOOTSTRAP BOMD RESTART"
 echo "=============================================="
+
 echo "Repository : {ROOT}"
 echo "Repetition : $SLURM_ARRAY_TASK_ID"
 echo "Working dir: $(pwd)"
 echo "Python     : {python_exe}"
-echo "=============================================="
 
+echo "=============================================="
 echo ""
+
 echo "Existing trajectory:"
 grep "Timestep:" output/xyz.all | tail -3 || true
+
 echo ""
 
-# IMPORTANT:
-# No BOMD_RESTART variable is used.
-#
-# The normal PlasmaDissociation main.py automatically detects
-# existing trajectory files and resumes from the latest common
-# timestep.
+echo "IMPORTANT:"
+echo "No BOMD_RESTART variable is being used."
+echo "The existing trajectory files are used for restart."
+echo ""
 
 exec "{python_exe}" "{ROOT}/bomd/code/main.py"
 """
@@ -203,6 +214,9 @@ def write_training_job(
     cfg,
     stage
 ):
+    """
+    Create the GPU-only MACE training job.
+    """
 
     hpc = cfg["HPC"]
 
@@ -238,34 +252,47 @@ echo "Host:"
 hostname
 
 echo ""
+
 echo "GPU:"
 nvidia-smi
 
 echo ""
+
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 
 echo ""
+
 echo "Python:"
 which python
 
 python - <<'PY'
+
 import torch
 
 print("PyTorch:", torch.__version__)
-print("CUDA available:", torch.cuda.is_available())
+
+print(
+    "CUDA available:",
+    torch.cuda.is_available()
+)
 
 if not torch.cuda.is_available():
+
     raise SystemExit(
         "ERROR: CUDA is not available. "
         "MACE training will NOT run on CPU."
     )
 
-print("GPU:", torch.cuda.get_device_name(0))
+print(
+    "GPU:",
+    torch.cuda.get_device_name(0)
+)
+
 PY
 
 cd "{ROOT}"
 
-exec python bootstrap_train.py \
+exec python bootstrap_train.py \\
     --config "{ROOT}/configs/bootstrap.json"
 """
     )
@@ -327,19 +354,32 @@ def main():
 
     print("=" * 60)
 
-    states = get_sacct_states(
-        args.job_id
-    )
+    # --------------------------------------------------------
+    # Check trajectory files first.
+    # --------------------------------------------------------
 
     trajectory = get_trajectory_status(
         stage,
         target
     )
 
+    repetitions = sorted(
+        trajectory
+    )
+
+    # --------------------------------------------------------
+    # Get Slurm state for each array task.
+    # --------------------------------------------------------
+
+    states = get_sacct_states(
+        args.job_id,
+        repetitions
+    )
+
     complete = []
     incomplete = []
 
-    for rep in sorted(trajectory):
+    for rep in repetitions:
 
         info = trajectory[rep]
 
@@ -357,9 +397,11 @@ def main():
         )
 
         if info["complete"]:
+
             complete.append(rep)
 
         else:
+
             incomplete.append(rep)
 
     print("-" * 60)
@@ -368,7 +410,7 @@ def main():
     print("Incomplete:", incomplete)
 
     # --------------------------------------------------------
-    # Everything complete
+    # Everything complete.
     # --------------------------------------------------------
 
     if not incomplete:
@@ -403,7 +445,7 @@ def main():
         return 0
 
     # --------------------------------------------------------
-    # Identify incomplete TIMEOUT jobs.
+    # Identify ONLY incomplete TIMEOUT jobs.
     # --------------------------------------------------------
 
     timeout_reps = [
@@ -417,6 +459,10 @@ def main():
         for rep in incomplete
         if states.get(rep) != "TIMEOUT"
     ]
+
+    # --------------------------------------------------------
+    # Do NOT automatically restart non-TIMEOUT jobs.
+    # --------------------------------------------------------
 
     if non_timeout:
 
@@ -434,6 +480,7 @@ def main():
             )
 
         print("")
+
         print(
             "No automatic restart will be submitted "
             "for these trajectories."
@@ -442,10 +489,11 @@ def main():
         return 2
 
     # --------------------------------------------------------
-    # Restart only TIMEOUT trajectories.
+    # Restart ONLY incomplete TIMEOUT trajectories.
     # --------------------------------------------------------
 
     print("")
+
     print(
         "TIMEOUT trajectories requiring restart:"
     )
@@ -469,6 +517,7 @@ def main():
     )
 
     print("")
+
     print(
         "Restart array submitted:",
         restart_job
@@ -482,20 +531,29 @@ def main():
         [
             "sbatch",
             "--parsable",
+
             f"--dependency=afterany:{restart_job}",
+
             "--cpus-per-task=1",
             "--mem=1G",
             "--time=00:15:00",
+
             "--job-name=BootstrapCheck",
+
             f"--output={stage}/logs/controller_%j.out",
             f"--error={stage}/logs/controller_%j.err",
+
             str(Path(__file__).resolve()),
+
             "--stage",
             str(int(args.stage) + 1),
+
             "--run-root",
             str(stage),
+
             "--config",
             str(Path(args.config).resolve()),
+
             "--job-id",
             restart_job
         ]
@@ -510,6 +568,7 @@ def main():
 
 
 if __name__ == "__main__":
+
     raise SystemExit(
         main()
     )

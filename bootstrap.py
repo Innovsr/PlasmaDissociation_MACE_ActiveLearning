@@ -283,7 +283,7 @@ def main():
     # ------------------------------------------------------------
 
     controller_script = (
-        ROOT / "00_bootstrap" / "bootstrap_controller.sh"
+        ROOT / "00_bootstrap" / "bootstrap_controller.py"
     )
 
     controller_job = subprocess.check_output(
