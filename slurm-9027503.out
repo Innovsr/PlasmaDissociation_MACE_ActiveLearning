@@ -1,4 +1,0 @@
-Validation controller started
-ROOT = /var/spool/slurmd
-PYTHON = /usr/bin/python
-/usr/bin/python: can't open file '/var/spool/slurmd/bomd/run/run_selective.py': [Errno 2] No such file or directory
