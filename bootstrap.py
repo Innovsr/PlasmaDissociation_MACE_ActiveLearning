@@ -44,7 +44,6 @@ def create_runtime_files(cfg, stage):
             "account": cfg["HPC"]["account"],
             "Runfolder": cfg["HPC"]["Runfolder"],
             "cores": cfg["HPC"]["cores"],
-            "hours": cfg["HPC"]["hours"],
             "memory": cfg["HPC"]["memory"]
         },
 
@@ -286,6 +285,33 @@ def main():
         ROOT / "00_bootstrap" / "bootstrap_controller.py"
     )
 
+    #controller_job = subprocess.check_output(
+    #    [
+    #        "sbatch",
+    #        "--parsable",
+    #        "--account",
+    #        cfg["HPC"]["account"],
+    #        "--dependency",
+    #        f"afterany:{bomd_job}",
+    #        "--cpus-per-task=1",
+    #        "--mem=1G",
+    #        "--time=00:15:00",
+    #        "--job-name=BootstrapCheck",
+    #        f"--output={stage}/logs/controller_%j.out",
+    #        f"--error={stage}/logs/controller_%j.err",
+    #        str(controller_script),
+    #        "--stage",
+    #        "0",
+    #        "--run-root",
+    #        str(stage),
+    #        "--config",
+    #        str(Path(args.config).resolve()),
+    #        "--job-id",
+    #        str(bomd_job)
+    #    ],
+    #    text=True
+    #).strip().split(";")[0]
+
     controller_job = subprocess.check_output(
         [
             "sbatch",
@@ -300,18 +326,29 @@ def main():
             "--job-name=BootstrapCheck",
             f"--output={stage}/logs/controller_%j.out",
             f"--error={stage}/logs/controller_%j.err",
-            str(controller_script),
+    
+            # Use the real repository controller script,
+            # not the Slurm temporary copy
+            str(ROOT / "00_bootstrap" / "bootstrap_controller.py"),
+    
             "--stage",
             "0",
+    
             "--run-root",
             str(stage),
+    
             "--config",
             str(Path(args.config).resolve()),
+    
             "--job-id",
-            str(bomd_job)
+            str(bomd_job),
+    
+            # Explicitly tell the controller where the repository is
+            "--repo-root",
+            str(ROOT),
         ],
         text=True
-    ).strip().split(";")[0]
+    ).strip()
 
     print("")
     print("BOMD trajectories submitted.")

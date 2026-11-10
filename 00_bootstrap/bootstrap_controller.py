@@ -8,9 +8,16 @@ import subprocess
 import sys
 from pathlib import Path
 import importlib.util
+import os
 
 
-ROOT = Path(__file__).resolve().parents[1]
+#ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(
+    os.environ.get(
+        "PLASMA_REPO_ROOT",
+        "/users/lgjs798/PlasmaDissociation_MACE_ActiveLearning"
+    )
+).resolve()
 
 
 def load_config(path):
@@ -368,6 +375,11 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
+        "--repo-root",
+        required=True
+    )
+
+    parser.add_argument(
         "--stage",
         required=True
     )
@@ -389,6 +401,8 @@ def main():
     )
 
     args = parser.parse_args()
+
+    ROOT = Path(args.repo_root).resolve()
 
     stage = Path(
         args.run_root
