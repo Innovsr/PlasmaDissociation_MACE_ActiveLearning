@@ -189,6 +189,94 @@ def get_trajectory_status(stage, target):
     return results
 
 
+#def write_restart_array(
+#    cfg,
+#    stage,
+#    repetitions
+#):
+#    """
+#    Create a Slurm array containing ONLY the incomplete
+#    TIMEOUT trajectories.
+#
+#    No BOMD_RESTART=1 is used.
+#
+#    The normal BOMD code is allowed to detect the existing
+#    trajectory files and continue from the latest common
+#    timestep.
+#    """
+#
+#    hpc = cfg["HPC"]
+#
+#    array_spec = ",".join(
+#        str(x)
+#        for x in repetitions
+#    )
+#
+#    script = stage / "restart_bomd.sh"
+#
+#    python_exe = sys.executable
+#
+#    script.write_text(
+#        f"""#!/bin/bash
+##SBATCH --account={hpc["account"]}
+##SBATCH --job-name=BootstrapRestart
+##SBATCH --time={hpc["bomd_time"]}
+##SBATCH --cpus-per-task={hpc["cores"]}
+##SBATCH --mem={hpc["memory"]}G
+##SBATCH --array={array_spec}
+##SBATCH --output={stage}/logs/restart_%A_%a.out
+##SBATCH --error={stage}/logs/restart_%A_%a.err
+#
+#set -euo pipefail
+#
+#module unload qchem 2>/dev/null || true
+#module load qchem/6.0.2
+#
+#export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
+#
+#export QC="$QCHEM_HOME"
+#export QCAUX="$QC/qcaux"
+#export QCPROG="$QC/exe/qcprog.exe"
+#export QCPROG_S="$QC/exe/qcprog.exe_s"
+#
+#export PATH="$PATH:$QC/exe:$QC/bin"
+#
+#export QCSCRATCH="{stage}/repetitions/rep-$SLURM_ARRAY_TASK_ID/tmp"
+#
+#mkdir -p "$QCSCRATCH"
+#
+#cd "{stage}/repetitions/rep-$SLURM_ARRAY_TASK_ID"
+#
+#echo "=============================================="
+#echo "BOOTSTRAP BOMD RESTART"
+#echo "=============================================="
+#
+#echo "Repository : {ROOT}"
+#echo "Repetition : $SLURM_ARRAY_TASK_ID"
+#echo "Working dir: $(pwd)"
+#echo "Python     : {python_exe}"
+#
+#echo "=============================================="
+#echo ""
+#
+#echo "Existing trajectory:"
+#grep "Timestep:" output/xyz.all | tail -3 || true
+#
+#echo ""
+#
+#echo "IMPORTANT:"
+#echo "No BOMD_RESTART variable is being used."
+#echo "The existing trajectory files are used for restart."
+#echo ""
+#
+#exec "{python_exe}" "{ROOT}/bomd/code/main.py"
+#"""
+#    )
+#
+#    script.chmod(0o755)
+#
+#    return script
+
 def write_restart_array(
     cfg,
     stage,
@@ -203,6 +291,10 @@ def write_restart_array(
     The normal BOMD code is allowed to detect the existing
     trajectory files and continue from the latest common
     timestep.
+
+    Before restarting, normalise Timestep headers such as
+    'Timestep: 670.0' to 'Timestep: 670' so that the existing
+    BOMD restart parser can read them.
     """
 
     hpc = cfg["HPC"]
@@ -269,6 +361,43 @@ echo "No BOMD_RESTART variable is being used."
 echo "The existing trajectory files are used for restart."
 echo ""
 
+echo "Normalising Timestep headers for BOMD restart..."
+
+python - <<'PY'
+from pathlib import Path
+import re
+
+output = Path("output")
+
+for name in (
+    "xyz.all",
+    "momenta.all",
+    "forces.all",
+    "time.all",
+):
+    path = output / name
+
+    if not path.exists():
+        continue
+
+    text = path.read_text()
+
+    text = re.sub(
+        r"(?m)^(\\s*Timestep:\\s*)(-?\\d+)(?:\\.0+)(\\s*)$",
+        r"\\g<1>\\g<2>\\g<3>",
+        text,
+    )
+
+    path.write_text(text)
+
+print("Timestep headers normalised.")
+PY
+
+echo "Trajectory after timestep normalisation:"
+grep "Timestep:" output/xyz.all | tail -3 || true
+
+echo ""
+
 exec "{python_exe}" "{ROOT}/bomd/code/main.py"
 """
     )
@@ -276,7 +405,6 @@ exec "{python_exe}" "{ROOT}/bomd/code/main.py"
     script.chmod(0o755)
 
     return script
-
 
 def write_training_job(
     cfg,
