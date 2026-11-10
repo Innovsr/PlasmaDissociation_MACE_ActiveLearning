@@ -4,7 +4,7 @@
         "Runfolder": "HFC236ea_bootstrap",
         "repeats": 50,
         "cores": 8,
-        "hours": 1,
+        "hours": "00:15:00",
         "memory": 16
     },
 

@@ -111,7 +111,7 @@ def submit_setup(cfg, stage):
         f"""#!/bin/bash
 #SBATCH --account={h["account"]}
 #SBATCH --job-name=BootstrapSetup
-#SBATCH --time={h["hours"]}:00:00
+#SBATCH --time=02:00:00
 #SBATCH --cpus-per-task={h["cores"]}
 #SBATCH --mem={h["memory"]}G
 #SBATCH --output={stage}/logs/setup_%j.out
@@ -167,7 +167,7 @@ def submit_bomd_array(cfg, stage, setup_job):
         f"""#!/bin/bash
 #SBATCH --account={h["account"]}
 #SBATCH --job-name=BootstrapBOMD
-#SBATCH --time={h["hours"]}:00:00
+#SBATCH --time={h["bomd_time"]}
 #SBATCH --cpus-per-task={h["cores"]}
 #SBATCH --mem={h["memory"]}G
 #SBATCH --array=1-{repeats}

@@ -213,7 +213,7 @@ def write_restart_array(
         f"""#!/bin/bash
 #SBATCH --account={hpc["account"]}
 #SBATCH --job-name=BootstrapRestart
-#SBATCH --time={hpc["hours"]}:00:00
+#SBATCH --time={hpc["bomd_time"]}
 #SBATCH --cpus-per-task={hpc["cores"]}
 #SBATCH --mem={hpc["memory"]}G
 #SBATCH --array={array_spec}
