@@ -526,22 +526,22 @@ def main():
     # --------------------------------------------------------
 
     if non_timeout:
-    print("")
-    print(
-        "These incomplete trajectories will NOT be restarted "
-        "because their Slurm state is not TIMEOUT:"
-    )
-
-    for rep in non_timeout:
+        print("")
         print(
-            f"  rep-{rep}: "
-            f"Slurm={states.get(rep, 'UNKNOWN')}"
+            "These incomplete trajectories will NOT be restarted "
+            "because their Slurm state is not TIMEOUT:"
         )
 
-    print("")
-    print(
-        "They will be excluded from the automatic restart."
-    )
+        for rep in non_timeout:
+            print(
+                f"  rep-{rep}: "
+                f"Slurm={states.get(rep, 'UNKNOWN')}"
+            )
+
+        print("")
+        print(
+            "They will be excluded from the automatic restart."
+        )
 
     #if non_timeout:
 
