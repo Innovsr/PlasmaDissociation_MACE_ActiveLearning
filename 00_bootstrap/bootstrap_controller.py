@@ -402,6 +402,7 @@ def main():
 
     args = parser.parse_args()
 
+    global ROOT
     ROOT = Path(args.repo_root).resolve()
 
     stage = Path(
@@ -619,44 +620,49 @@ def main():
     # --------------------------------------------------------
     # Submit another controller after restart.
     # --------------------------------------------------------
-
+    
     next_controller = submit(
         [
             "sbatch",
             "--parsable",
-
+    
             f"--dependency=afterany:{restart_job}",
-
+    
             "--cpus-per-task=1",
             "--mem=1G",
             "--time=00:15:00",
-
+    
             "--job-name=BootstrapCheck",
-
+    
             f"--output={stage}/logs/controller_%j.out",
             f"--error={stage}/logs/controller_%j.err",
-
-            str(Path(__file__).resolve()),
-
+    
+            # Use the real repository controller script
+            str(ROOT / "00_bootstrap" / "bootstrap_controller.py"),
+    
             "--stage",
             str(int(args.stage) + 1),
-
+    
             "--run-root",
             str(stage),
-
+    
             "--config",
             str(Path(args.config).resolve()),
-
+    
             "--job-id",
-            restart_job
+            restart_job,
+    
+            # Pass the real repository root to the next controller
+            "--repo-root",
+            str(ROOT)
         ]
     )
-
+    
     print(
         "Next controller:",
         next_controller
     )
-
+    
     return 0
 
 
