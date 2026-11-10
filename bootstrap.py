@@ -327,7 +327,7 @@ def main():
         "  1. Check all trajectories."
     )
     print(
-        "  2. Restart incomplete/timed-out trajectories."
+        "  2. Restart ONLY incomplete trajectories whose Slurm state is TIMEOUT."
     )
     print(
         "  3. Check again after every restart."

@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+import importlib.util
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,18 +88,78 @@ def get_sacct_states(job_id, repetitions):
     return states
 
 
-def get_trajectory_status(stage, target):
-    """
-    Use restart_manager.py to determine the latest common
-    timestep of every repetition.
-    """
+import importlib.util
 
-    sys.path.insert(
-        0,
-        str(ROOT)
+def get_trajectory_status(stage, target):
+
+    restart_manager_path = ROOT / "restart_manager.py"
+
+    if not restart_manager_path.exists():
+        raise FileNotFoundError(
+            f"restart_manager.py not found at {restart_manager_path}"
+        )
+
+    spec = importlib.util.spec_from_file_location(
+        "restart_manager",
+        restart_manager_path
     )
 
-    from restart_manager import status
+    if spec is None or spec.loader is None:
+        raise ImportError(
+            f"Could not load restart_manager.py from "
+            f"{restart_manager_path}"
+        )
+
+    restart_manager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(restart_manager)
+
+    repetitions = stage / "repetitions"
+    results = {}
+
+    for repdir in sorted(
+        repetitions.glob("rep-*"),
+        key=lambda p: int(p.name.split("-")[1])
+    ):
+        rep = int(repdir.name.split("-")[1])
+
+        results[rep] = restart_manager.status(
+            repdir,
+            target
+        )
+
+    return results
+
+#def get_trajectory_status(stage, target):
+#
+#    """
+#    Use restart_manager.py to determine the latest common
+#    timestep of every repetition.
+#    """
+#
+#    restart_manager_path = ROOT / "restart_manager.py"
+#
+#    if not restart_manager_path.exists():
+#        raise FileNotFoundError(
+#            f"restart_manager.py not found at {restart_manager_path}"
+#        )
+#
+#    sys.path.insert(0, str(ROOT))
+#
+#    from restart_manager import status
+
+
+#def get_trajectory_status(stage, target):
+#    """
+#    Use restart_manager.py to determine the latest common
+#    timestep of every repetition.
+#    """
+#
+#    sys.path.insert(
+#        0,
+#        str(ROOT)
+#    )
+#
+#    from restart_manager import status
 
     repetitions = stage / "repetitions"
 
