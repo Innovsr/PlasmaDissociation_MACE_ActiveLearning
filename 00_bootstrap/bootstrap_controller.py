@@ -526,28 +526,46 @@ def main():
     # --------------------------------------------------------
 
     if non_timeout:
+    print("")
+    print(
+        "These incomplete trajectories will NOT be restarted "
+        "because their Slurm state is not TIMEOUT:"
+    )
 
-        print("")
+    for rep in non_timeout:
         print(
-            "ERROR: These trajectories are incomplete "
-            "but did not finish with TIMEOUT:"
+            f"  rep-{rep}: "
+            f"Slurm={states.get(rep, 'UNKNOWN')}"
         )
 
-        for rep in non_timeout:
+    print("")
+    print(
+        "They will be excluded from the automatic restart."
+    )
 
-            print(
-                f"  rep-{rep}: "
-                f"Slurm={states.get(rep, 'UNKNOWN')}"
-            )
+    #if non_timeout:
 
-        print("")
+    #    print("")
+    #    print(
+    #        "ERROR: These trajectories are incomplete "
+    #        "but did not finish with TIMEOUT:"
+    #    )
 
-        print(
-            "No automatic restart will be submitted "
-            "for these trajectories."
-        )
+    #    for rep in non_timeout:
 
-        return 2
+    #        print(
+    #            f"  rep-{rep}: "
+    #            f"Slurm={states.get(rep, 'UNKNOWN')}"
+    #        )
+
+    #    print("")
+
+    #    print(
+    #        "No automatic restart will be submitted "
+    #        "for these trajectories."
+    #    )
+
+    #    return 2
 
     # --------------------------------------------------------
     # Restart ONLY incomplete TIMEOUT trajectories.
