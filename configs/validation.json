@@ -17,7 +17,7 @@
     },
     "Propagation": {
         "Timestep": 10,
-        "Tot_timesteps": 100
+        "Tot_timesteps": 250
     },
     "Trajectory_selection": {
         "enabled": 1,

@@ -334,9 +334,7 @@ def create_restart_array(
         / "main.py"
     )
 
-    bomd_time = (
-        f"{int(hpc['hours']):02d}:00:00"
-    )
+    bomd_time = str(hpc["hours"]).strip()
 
     python_exe = sys.executable
 
@@ -549,43 +547,103 @@ def submit_model_update(
 # SUBMIT NEXT CONTROLLER
 # ============================================================
 
+#def submit_next_controller(
+#    run_root,
+#    restart_job
+#):
+#
+#    controller_job = submit(
+#        [
+#            "sbatch",
+#            "--parsable",
+#
+#            f"--dependency=afterany:{restart_job}",
+#
+#            "--cpus-per-task=1",
+#            "--mem=1G",
+#            "--time=00:15:00",
+#
+#            "--job-name=ValidationCheck",
+#
+#            f"--output={run_root}/logs/controller_%j.out",
+#            f"--error={run_root}/logs/controller_%j.err",
+#
+#            sys.executable,
+#            str(
+#                PACKAGE_ROOT
+#                / "validation_controller.py"
+#            ),
+#
+#            "--run-root",
+#            str(run_root),
+#
+#            "--array-job",
+#            str(restart_job)
+#        ]
+#    )
+#
+#    return controller_job
+
 def submit_next_controller(
     run_root,
     restart_job
 ):
+    """
+    Submit the next validation controller through a proper
+    Slurm batch script.
+
+    The controller waits until the restart array has finished,
+    then checks all trajectories again.
+    """
+
+    run_root = Path(run_root).resolve()
+
+    controller_script = (
+        run_root
+        / "next_validation_controller.sh"
+    )
+
+    controller_python = (
+        PACKAGE_ROOT
+        / "validation_controller.py"
+    )
+
+    controller_script.write_text(
+        f"""#!/bin/bash
+
+#SBATCH --account={json.load(open(run_root / "inputs.json"))["HPC"]["account"]}
+#SBATCH --job-name=ValidationCheck
+#SBATCH --time=00:15:00
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=1G
+#SBATCH --output={run_root}/logs/controller_%j.out
+#SBATCH --error={run_root}/logs/controller_%j.err
+
+set -euo pipefail
+
+exec "{sys.executable}" "{controller_python}" \\
+    --run-root "{run_root}" \\
+    --array-job "{restart_job}"
+"""
+    )
+
+    controller_script.chmod(0o755)
 
     controller_job = submit(
         [
             "sbatch",
             "--parsable",
-
             f"--dependency=afterany:{restart_job}",
-
-            "--cpus-per-task=1",
-            "--mem=1G",
-            "--time=00:15:00",
-
-            "--job-name=ValidationCheck",
-
-            f"--output={run_root}/logs/controller_%j.out",
-            f"--error={run_root}/logs/controller_%j.err",
-
-            sys.executable,
-            str(
-                PACKAGE_ROOT
-                / "validation_controller.py"
-            ),
-
-            "--run-root",
-            str(run_root),
-
-            "--array-job",
-            str(restart_job)
+            str(controller_script)
         ]
     )
 
-    return controller_job
+    print(
+        "Next controller:",
+        controller_job
+    )
 
+    return controller_job
 
 # ============================================================
 # MAIN

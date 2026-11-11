@@ -79,26 +79,35 @@ def scratch_parent(runfolder: str) -> Path:
         / runfolder
     )
 
-
-def slurm_time(hours: int) -> str:
+def slurm_time(hours) -> str:
     """
-    Convert an integer number of hours into a valid Slurm
-    HH:MM:SS specification.
+    Accept either:
 
-    Example:
+        1
+        "1"
+        "01:00:00"
+        "00:15:00"
+        "2-00:00:00"
 
-        1  -> 01:00:00
-        2  -> 02:00:00
+    and return a valid Slurm time specification.
     """
 
-    hours = int(hours)
+    if isinstance(hours, int):
+        if hours < 1:
+            raise ValueError("HPC hours must be >= 1")
+        return f"{hours:02d}:00:00"
 
-    if hours < 1:
-        raise ValueError(
-            "HPC hours must be >= 1"
-        )
+    hours = str(hours).strip()
 
-    return f"{hours:02d}:00:00"
+    if ":" in hours or "-" in hours:
+        return hours
+
+    value = int(hours)
+
+    if value < 1:
+        raise ValueError("HPC hours must be >= 1")
+
+    return f"{value:02d}:00:00"
 
 
 def make_runtime_inputs(inputs: dict) -> dict:
@@ -522,25 +531,60 @@ def main():
         array_job
     )
 
+    controller_script = stage / "validation_controller.sh"
+
+    controller_script.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/bin/bash
+    
+            #SBATCH --account={hpc["account"]}
+            #SBATCH --job-name=ValidationCheck
+            #SBATCH --time=00:15:00
+            #SBATCH --cpus-per-task=1
+            #SBATCH --mem=1G
+            #SBATCH --output={stage}/logs/controller_%j.out
+            #SBATCH --error={stage}/logs/controller_%j.err
+    
+            set -euo pipefail
+    
+            exec "{sys.executable}" "{CONTROLLER}" \
+                --run-root "{stage}" \
+                --array-job "{array_job}"
+            """
+        )
+    )
+    
+    controller_script.chmod(0o755)
+
     controller_job = submit(
         [
             "sbatch",
             "--parsable",
             f"--dependency=afterany:{array_job}",
-            "--cpus-per-task=1",
-            "--mem=1G",
-            "--time=00:15:00",
-            "--job-name=ValidationCheck",
-            f"--output={stage}/logs/controller_%j.out",
-            f"--error={stage}/logs/controller_%j.err",
-            sys.executable,
-            str(CONTROLLER),
-            "--run-root",
-            str(stage),
-            "--array-job",
-            str(array_job)
+            str(controller_script)
         ]
     )
+
+    #controller_job = submit(
+    #    [
+    #        "sbatch",
+    #        "--parsable",
+    #        f"--dependency=afterany:{array_job}",
+    #        "--cpus-per-task=1",
+    #        "--mem=1G",
+    #        "--time=00:15:00",
+    #        "--job-name=ValidationCheck",
+    #        f"--output={stage}/logs/controller_%j.out",
+    #        f"--error={stage}/logs/controller_%j.err",
+    #        sys.executable,
+    #        str(CONTROLLER),
+    #        "--run-root",
+    #        str(stage),
+    #        "--array-job",
+    #        str(array_job)
+    #    ]
+    #)
 
     print(
         "Validation controller:",
