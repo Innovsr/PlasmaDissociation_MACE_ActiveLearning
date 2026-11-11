@@ -1,10 +1,10 @@
 {
     "HPC": {
         "account": "chmdsh_project",
-        "Runfolder": "HFC236ea_active_learning_2",
+        "Runfolder": "HFC236ea_bootstrap",
         "repeats": 30,
         "cores": 8,
-        "hours": 1,
+        "hours": "00:15:00",
         "memory": 16
     },
     "Molecule_data": {

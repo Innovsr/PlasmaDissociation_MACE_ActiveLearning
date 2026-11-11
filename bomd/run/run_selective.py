@@ -351,7 +351,7 @@ def main():
 
             #SBATCH --account={h["account"]}
             #SBATCH --job-name=Setup_{h["Runfolder"]}
-            #SBATCH --time={h["hours"]}:00:00
+            #SBATCH --time=02:00:00
             #SBATCH --cpus-per-task={h["cores"]}
             #SBATCH --mem={h["memory"]}G
             #SBATCH --output={stage}/logs/setup_%j.out
@@ -400,7 +400,7 @@ def main():
 
             #SBATCH --account={h["account"]}
             #SBATCH --job-name=Validation_{h["Runfolder"]}
-            #SBATCH --time={h["hours"]}:00:00
+            #SBATCH --time={hpc["bomd_time"]}
             #SBATCH --cpus-per-task={h["cores"]}
             #SBATCH --mem={h["memory"]}G
             #SBATCH --array=1-{selected_count}
