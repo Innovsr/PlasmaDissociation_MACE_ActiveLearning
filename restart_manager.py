@@ -12,7 +12,7 @@ from pathlib import Path
 FILES = ("xyz.all", "momenta.all", "forces.all", "time.all")
 TS_RE = re.compile(r"^\s*Timestep:\s*(-?\d+(?:\.\d+)?)\s*$")
 
-def timesteps(path: Path) -> set[int]:
+def timesteps(path: Path) -> set[float]:
     out=set()
     if not path.exists():
         return out
@@ -23,7 +23,7 @@ def timesteps(path: Path) -> set[int]:
                 out.add(float(m.group(1)))
     return out
 
-def latest_common(repdir: Path) -> int | None:
+def latest_common(repdir: Path) -> float | None:
     sets=[]
     for name in FILES:
         s=timesteps(repdir/"output"/name)

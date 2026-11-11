@@ -58,7 +58,35 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+import importlib.util
 
+
+# ============================================================
+# LOAD COMMON RESTART MANAGER
+# ============================================================
+
+PACKAGE_ROOT = Path(__file__).resolve().parent
+
+RESTART_MANAGER_PATH = PACKAGE_ROOT / "restart_manager.py"
+
+if not RESTART_MANAGER_PATH.exists():
+    raise FileNotFoundError(
+        f"restart_manager.py not found at {RESTART_MANAGER_PATH}"
+    )
+
+spec = importlib.util.spec_from_file_location(
+    "restart_manager",
+    RESTART_MANAGER_PATH
+)
+
+if spec is None or spec.loader is None:
+    raise ImportError(
+        f"Could not load restart_manager.py from "
+        f"{RESTART_MANAGER_PATH}"
+    )
+
+restart_manager = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(restart_manager)
 
 # ============================================================
 # SLURM ARRAY STATE
@@ -116,91 +144,91 @@ def get_array_states(array_job_id):
 # ============================================================
 # TIMESTEP READING
 # ============================================================
-
-def check_timestep_file(filename):
-    """
-    Return all timestep numbers found in a trajectory file.
-    """
-
-    timesteps = set()
-
-    if not filename.exists():
-        return timesteps
-
-    with filename.open(
-        "r",
-        errors="replace"
-    ) as f:
-
-        for line in f:
-
-            if "Timestep:" not in line:
-                continue
-
-            parts = line.split()
-
-            try:
-                timestep = int(float(parts[1]))
-                timesteps.add(timestep)
-
-            except (
-                ValueError,
-                IndexError
-            ):
-                continue
-
-    return timesteps
-
-
-# ============================================================
-# COMMON TIMESTEP
-# ============================================================
-
-def get_common_timestep(repdir):
-    """
-    Find the latest timestep present in ALL required files.
-
-        xyz.all
-        momenta.all
-        forces.all
-        time.all
-
-    This is the only timestep used to determine completion.
-    """
-
-    output = repdir / "output"
-
-    xyz = check_timestep_file(
-        output / "xyz.all"
-    )
-
-    momenta = check_timestep_file(
-        output / "momenta.all"
-    )
-
-    forces = check_timestep_file(
-        output / "forces.all"
-    )
-
-    times = check_timestep_file(
-        output / "time.all"
-    )
-
-    if not xyz or not momenta or not forces or not times:
-        return None
-
-    common = (
-        xyz
-        & momenta
-        & forces
-        & times
-    )
-
-    if not common:
-        return None
-
-    return max(common)
-
+#
+#def check_timestep_file(filename):
+#    """
+#    Return all timestep numbers found in a trajectory file.
+#    """
+#
+#    timesteps = set()
+#
+#    if not filename.exists():
+#        return timesteps
+#
+#    with filename.open(
+#        "r",
+#        errors="replace"
+#    ) as f:
+#
+#        for line in f:
+#
+#            if "Timestep:" not in line:
+#                continue
+#
+#            parts = line.split()
+#
+#            try:
+#                timestep = int(float(parts[1]))
+#                timesteps.add(timestep)
+#
+#            except (
+#                ValueError,
+#                IndexError
+#            ):
+#                continue
+#
+#    return timesteps
+#
+#
+## ============================================================
+## COMMON TIMESTEP
+## ============================================================
+#
+#def get_common_timestep(repdir):
+#    """
+#    Find the latest timestep present in ALL required files.
+#
+#        xyz.all
+#        momenta.all
+#        forces.all
+#        time.all
+#
+#    This is the only timestep used to determine completion.
+#    """
+#
+#    output = repdir / "output"
+#
+#    xyz = check_timestep_file(
+#        output / "xyz.all"
+#    )
+#
+#    momenta = check_timestep_file(
+#        output / "momenta.all"
+#    )
+#
+#    forces = check_timestep_file(
+#        output / "forces.all"
+#    )
+#
+#    times = check_timestep_file(
+#        output / "time.all"
+#    )
+#
+#    if not xyz or not momenta or not forces or not times:
+#        return None
+#
+#    common = (
+#        xyz
+#        & momenta
+#        & forces
+#        & times
+#    )
+#
+#    if not common:
+#        return None
+#
+#    return max(common)
+#
 
 # ============================================================
 # CHECK ALL TRAJECTORIES
@@ -246,8 +274,7 @@ def inspect_all_trajectories(
         ):
             continue
 
-        common = get_common_timestep(
-            repdir
+        common = restart_manager.latest_common(repdir)
         )
 
         if common is None:
@@ -929,8 +956,7 @@ def main():
             / f"rep-{task_id}"
         )
 
-        common = get_common_timestep(
-            repdir
+        common = restart_manager.latest_common(repdir)
         )
 
         print()
