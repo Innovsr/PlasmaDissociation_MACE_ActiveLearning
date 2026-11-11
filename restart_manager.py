@@ -47,7 +47,7 @@ def status(repdir: Path, target_steps: float) -> dict:
         "has_trajectory_files": all((repdir/"output"/n).exists() for n in FILES),
     }
 
-def all_complete(run_root: Path, target_steps: int) -> bool:
+def all_complete(run_root: Path, target_steps: float) -> bool:
     reps=sorted((run_root/"repetitions").glob("rep-*"))
     if not reps:
         return False

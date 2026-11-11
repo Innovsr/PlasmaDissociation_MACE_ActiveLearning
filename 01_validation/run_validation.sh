@@ -1,42 +1,88 @@
 #!/bin/bash
 
-#SBATCH --account=chmdsh_project
-#SBATCH --job-name=Validation_Controller
-#SBATCH --time=00:30:00
-#SBATCH --cpus-per-task=1
-#SBATCH --mem=2G
+set -euo pipefail
 
-set -eo pipefail
+# ============================================================
+# VALIDATION WORKFLOW LAUNCHER
+#
+# Usage:
+#
+#     bash run_validation.sh
+#
+# This script only launches the Python controller.
+# The controller automatically submits:
+#
+#     setup job
+#     validation array
+#     restart checker
+#     restart arrays when required
+#     next restart checker
+#     finalisation
+#     model update
+# ============================================================
 
-# sbatch sets SLURM_SUBMIT_DIR to the directory from which
-# the job was submitted. This avoids /var/spool/slurmd.
-ROOT="${SLURM_SUBMIT_DIR}"
+echo
+echo "=============================================="
+echo "VALIDATION WORKFLOW"
+echo "=============================================="
 
-# If submitted from 01_validation/, move to package root.
-if [ ! -f "$ROOT/configs/validation.json" ] && \
-   [ -f "$ROOT/../configs/validation.json" ]; then
-    ROOT="$(cd "$ROOT/.." && pwd)"
-fi
+# ------------------------------------------------------------
+# Repository root
+# ------------------------------------------------------------
 
-if [ ! -f "$ROOT/configs/validation.json" ]; then
-    echo "ERROR: configs/validation.json not found"
-    echo "ROOT = $ROOT"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+CONFIG="$ROOT/configs/validation.json"
+CONTROLLER="$ROOT/bomd/run/run_selective.py"
+
+echo
+echo "ROOT       = $ROOT"
+echo "CONFIG     = $CONFIG"
+echo "CONTROLLER = $CONTROLLER"
+
+# ------------------------------------------------------------
+# Check files
+# ------------------------------------------------------------
+
+if [ ! -f "$CONFIG" ]; then
+    echo
+    echo "ERROR: validation.json not found:"
+    echo "$CONFIG"
     exit 1
 fi
 
+if [ ! -f "$CONTROLLER" ]; then
+    echo
+    echo "ERROR: run_selective.py not found:"
+    echo "$CONTROLLER"
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# Load Python environment
+# ------------------------------------------------------------
+
 module load miniforge
+
 source "$(conda info --base)/etc/profile.d/conda.sh"
+
 conda activate plasma
 
 PYTHON="$(command -v python)"
 
+echo
+echo "PYTHON     = $PYTHON"
+
+# ------------------------------------------------------------
+# Run Validation controller
+# ------------------------------------------------------------
+
 cd "$ROOT"
 
-echo "Validation controller started"
-echo "ROOT = $ROOT"
-echo "PYTHON = $PYTHON"
+echo
+echo "Starting Validation controller..."
+echo
 
-python -c "import sys, numpy; print('Python:', sys.executable); print('NumPy:', numpy.__version__)"
-
-exec "$PYTHON" "$ROOT/bomd/run/run_selective.py" \
-    --input "$ROOT/configs/validation.json"
+exec "$PYTHON" "$CONTROLLER" \
+    --input "$CONFIG"
