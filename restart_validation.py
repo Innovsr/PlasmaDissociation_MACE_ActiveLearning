@@ -275,7 +275,6 @@ def inspect_all_trajectories(
             continue
 
         common = restart_manager.latest_common(repdir)
-        )
 
         if common is None:
 
@@ -957,7 +956,6 @@ def main():
         )
 
         common = restart_manager.latest_common(repdir)
-        )
 
         print()
         print(

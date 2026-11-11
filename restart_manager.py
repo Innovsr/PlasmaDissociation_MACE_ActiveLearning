@@ -37,7 +37,7 @@ def latest_common(repdir: Path) -> float | None:
             return None
     return max(common)
 
-def status(repdir: Path, target_steps: int) -> dict:
+def status(repdir: Path, target_steps: float) -> dict:
     current=latest_common(repdir)
     return {
         "rep": repdir.name,
