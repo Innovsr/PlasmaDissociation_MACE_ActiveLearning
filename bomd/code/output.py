@@ -135,6 +135,12 @@ def output_forces(molecule):
     """Append single-state forces and energy to output/forces.all."""
     with open("output/forces.all", "a") as forces_file:
         forces_file.write(f"Timestep: {molecule.timestep}\n")
+
+        # Required for restart
+        forces_file.write(f"Amplitudes: {molecule.amplitudes}\n")
+        forces_file.write(f"Multiplicity: {molecule.multiplicity}\n")
+
+
         energy = float(molecule.scf_energy[0]) if len(molecule.scf_energy) else 0.0
         forces_file.write(f"SCF Energy: {energy}\n")
         forces_file.write("Forces:\n")
@@ -144,6 +150,7 @@ def output_forces(molecule):
         for atom_idx, (fx, fy, fz) in enumerate(force_array, start=1):
             forces_file.write(f"Atom {atom_idx}:\n")
             forces_file.write(f"State 1: {fx:.12f} {fy:.12f} {fz:.12f}\n")
+        forces_file.write(f"Dissociation Flags: {molecule.dissociation_flags}\n")
         forces_file.write("----------------------------------------\n")
 
 def output_time(molecule):

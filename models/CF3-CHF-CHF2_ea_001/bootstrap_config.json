@@ -1,0 +1,53 @@
+{
+    "HPC": {
+        "account": "chmdsh_project",
+        "Runfolder": "HFC236ea_bootstrap",
+        "repeats": 50,
+        "cores": 8,
+        "bomd_time": "00:15:00",
+        "memory": 16
+    },
+    "Molecule_data": {
+        "Molecule": "CF3-CHF-CHF2_ea",
+        "Multiplicity": 3,
+        "Temp": 5000
+    },
+    "Elec_structure": {
+        "method": "QChem"
+    },
+    "Propagation": {
+        "Timestep": 10,
+        "Tot_timesteps": 100
+    },
+    "dataset_split": {
+        "training_percent": 80,
+        "validation_percent": 10,
+        "test_percent": 10,
+        "seed": 42
+    },
+    "mace": {
+        "command": "mace_run_train",
+        "device": "cuda",
+        "energy_key": "REF_energy",
+        "forces_key": "REF_forces",
+        "model": "MACE",
+        "r_max": 5.0,
+        "radial_type": "bessel",
+        "num_radial_basis": 8,
+        "num_cutoff_basis": 5,
+        "max_ell": 2,
+        "correlation": 3,
+        "num_interactions": 3,
+        "hidden_irreps": "128x0e + 128x1o + 128x2e",
+        "batch_size": 8,
+        "valid_batch_size": 8,
+        "energy_weight": 1.0,
+        "forces_weight": 2.0,
+        "lr": 0.0002,
+        "max_num_epochs": 50,
+        "patience": 5,
+        "eval_interval": 1,
+        "default_dtype": "float64",
+        "seed": 42
+    }
+}

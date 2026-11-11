@@ -1,0 +1,56 @@
+{
+    "model_id": "CF3-CHF-CHF2_ea_001",
+    "parent_model": null,
+    "training_mode": "from_scratch",
+    "molecules": [
+        "CF3-CHF-CHF2_ea"
+    ],
+    "temperature_K": 5000,
+    "multiplicity": 3,
+    "electronic_structure": {
+        "method": "QChem"
+    },
+    "propagation": {
+        "Timestep": 10,
+        "Tot_timesteps": 100
+    },
+    "number_of_trajectories": 50,
+    "dataset_split": {
+        "training_percent": 80,
+        "validation_percent": 10,
+        "test_percent": 10,
+        "seed": 42
+    },
+    "dataset_files": {
+        "training": "training_data.zip",
+        "validation": "validation_data.zip",
+        "test": "test_data.zip"
+    },
+    "mace": {
+        "command": "mace_run_train",
+        "device": "cuda",
+        "energy_key": "REF_energy",
+        "forces_key": "REF_forces",
+        "model": "MACE",
+        "r_max": 5.0,
+        "radial_type": "bessel",
+        "num_radial_basis": 8,
+        "num_cutoff_basis": 5,
+        "max_ell": 2,
+        "correlation": 3,
+        "num_interactions": 3,
+        "hidden_irreps": "128x0e + 128x1o + 128x2e",
+        "batch_size": 8,
+        "valid_batch_size": 8,
+        "energy_weight": 1.0,
+        "forces_weight": 2.0,
+        "lr": 0.0002,
+        "max_num_epochs": 50,
+        "patience": 5,
+        "eval_interval": 1,
+        "default_dtype": "float64",
+        "seed": 42
+    },
+    "model_file": "model.model",
+    "status": "bootstrap_candidate"
+}
