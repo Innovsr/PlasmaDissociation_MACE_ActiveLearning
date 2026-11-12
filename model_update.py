@@ -59,6 +59,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -167,6 +168,57 @@ def registry_row(root, model_id):
     return {}
 
 
+def find_source_checkpoint(model_dir):
+    """Find the highest-numbered MACE .pt checkpoint."""
+
+    checkpoint_dir = model_dir / "checkpoints"
+
+    if not checkpoint_dir.exists():
+        raise SystemExit(
+            f"Source model has no checkpoint directory:\n"
+            f"{checkpoint_dir}"
+        )
+
+    checkpoint_files = sorted(
+        checkpoint_dir.glob("*.pt")
+    )
+
+    if not checkpoint_files:
+        raise SystemExit(
+            f"No MACE checkpoint (*.pt) found in:\n"
+            f"{checkpoint_dir}"
+        )
+
+    def checkpoint_epoch(path):
+        match = re.search(
+            r"epoch[-_]?(\d+)",
+            path.name,
+            flags=re.IGNORECASE,
+        )
+
+        return int(match.group(1)) if match else -1
+
+    numbered = [
+        (checkpoint_epoch(path), path)
+        for path in checkpoint_files
+    ]
+
+    numbered.sort(
+        key=lambda item: (
+            item[0],
+            item[1].stat().st_mtime
+        )
+    )
+
+    epoch, checkpoint = numbered[-1]
+
+    if epoch < 0:
+        raise SystemExit(
+            "Could not determine epoch from checkpoint filename."
+        )
+
+    return checkpoint, epoch
+
 def run_command(command):
     """
     Print and execute a subprocess command.
@@ -243,26 +295,46 @@ def main():
         root,
         source,
     )
-
-    source_epoch = int(
-        metadata.get("best_epoch")
-        or config.get(
-            "old_epoch",
-            0
-        )
+    
+    source_checkpoint, source_epoch = find_source_checkpoint(
+        model_dir
     )
+
+#    metadata = registry_row(
+#        root,
+#        source,
+#    )
+#
+#    source_epoch = int(
+#        metadata.get("best_epoch")
+#        or config.get(
+#            "old_epoch",
+#            0
+#        )
+#    )
 
     print("=" * 70)
     print("ACTIVE-LEARNING MODEL UPDATE")
     print("=" * 70)
 
     print(
-        f"Source model : {source}"
+        f"Source model      : {source}"
     )
-
+    
     print(
-        f"Source epoch : {source_epoch}"
+        f"Source checkpoint : {source_checkpoint.name}"
     )
+    
+    print(
+        f"Source epoch      : {source_epoch}"
+    )
+#    print(
+#        f"Source model : {source}"
+#    )
+#
+#    print(
+#        f"Source epoch : {source_epoch}"
+#    )
 
     # ------------------------------------------------------------------
     # Locate Stage-1 validation dataset
