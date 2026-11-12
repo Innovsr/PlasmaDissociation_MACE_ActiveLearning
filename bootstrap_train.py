@@ -57,6 +57,7 @@ def next_model_version(models_dir, molecule):
             continue
 
         try:
+
             number = int(
                 d.name.rsplit("_", 1)[1]
             )
@@ -113,6 +114,7 @@ def main():
     )
 
     if not repetitions.exists():
+
         raise SystemExit(
             f"Missing trajectories: {repetitions}"
         )
@@ -140,7 +142,7 @@ def main():
     )
 
     # ------------------------------------------------------------
-    # Split by COMPLETE trajectory.
+    # Split by complete trajectory.
     # ------------------------------------------------------------
 
     dataset_dir = (
@@ -186,7 +188,7 @@ def main():
     test = dataset_dir / "test.extxyz"
 
     # ------------------------------------------------------------
-    # Train from scratch.
+    # MACE work directory.
     # ------------------------------------------------------------
 
     work = (
@@ -219,7 +221,79 @@ def main():
 
     mace = cfg["mace"]
 
+    checkpoints = (
+        work / "checkpoints"
+    )
+
+    # ------------------------------------------------------------
+    # Determine whether this is a restart.
+    # ------------------------------------------------------------
+
+    checkpoint_files = []
+
+    if checkpoints.exists():
+
+        checkpoint_files = list(
+            checkpoints.glob("*.pt")
+        )
+
+    restart = bool(
+        checkpoint_files
+    )
+
+    if restart:
+
+        print("")
+        print(
+            "=============================================="
+        )
+        print(
+            "BOOTSTRAP MACE RESTART"
+        )
+        print(
+            "=============================================="
+        )
+
+        print(
+            f"Checkpoint directory: {checkpoints}"
+        )
+
+        print(
+            f"Checkpoint files found: "
+            f"{len(checkpoint_files)}"
+        )
+
+        print(
+            "Using --restart_latest"
+        )
+
+    else:
+
+        print("")
+        print(
+            "=============================================="
+        )
+        print(
+            "BOOTSTRAP MACE NEW TRAINING"
+        )
+        print(
+            "=============================================="
+        )
+
+        print(
+            "No existing MACE checkpoint found."
+        )
+
+        print(
+            "Training from scratch."
+        )
+
+    # ------------------------------------------------------------
+    # Build MACE command.
+    # ------------------------------------------------------------
+
     cmd = [
+
         mace["command"],
 
         f"--name={model_name}",
@@ -281,9 +355,25 @@ def main():
         f"--seed={mace['seed']}"
     ]
 
+    if restart:
+
+        cmd.append(
+            "--restart_latest"
+        )
+
+    print("")
     print(
-        "Starting MACE training FROM SCRATCH."
+        "MACE COMMAND:"
     )
+
+    print(
+        " ".join(
+            str(x)
+            for x in cmd
+        )
+    )
+
+    print("")
 
     subprocess.run(
         cmd,
@@ -299,6 +389,7 @@ def main():
     )
 
     if not candidates:
+
         raise SystemExit(
             "MACE finished but no .model file was found."
         )
@@ -351,10 +442,8 @@ def main():
     )
 
     # ------------------------------------------------------------
-    # Preserve checkpoints.
+    # Preserve ALL checkpoints.
     # ------------------------------------------------------------
-
-    checkpoints = work / "checkpoints"
 
     if checkpoints.exists():
 
@@ -368,23 +457,31 @@ def main():
     # ------------------------------------------------------------
 
     metadata = {
+
         "model_id": model_id,
 
         "parent_model": None,
 
-        "training_mode": "from_scratch",
+        "training_mode":
+            "restart"
+            if restart
+            else "from_scratch",
 
         "molecules": [
             molecule
         ],
 
-        "temperature_K": cfg["Molecule_data"]["Temp"],
+        "temperature_K":
+            cfg["Molecule_data"]["Temp"],
 
-        "multiplicity": cfg["Molecule_data"]["Multiplicity"],
+        "multiplicity":
+            cfg["Molecule_data"]["Multiplicity"],
 
-        "electronic_structure": cfg["Elec_structure"],
+        "electronic_structure":
+            cfg["Elec_structure"],
 
-        "propagation": cfg["Propagation"],
+        "propagation":
+            cfg["Propagation"],
 
         "number_of_trajectories":
             cfg["HPC"]["repeats"],
@@ -393,16 +490,25 @@ def main():
             cfg["dataset_split"],
 
         "dataset_files": {
-            "training": "training_data.zip",
-            "validation": "validation_data.zip",
-            "test": "test_data.zip"
+
+            "training":
+                "training_data.zip",
+
+            "validation":
+                "validation_data.zip",
+
+            "test":
+                "test_data.zip"
         },
 
-        "mace": cfg["mace"],
+        "mace":
+            cfg["mace"],
 
-        "model_file": "model.model",
+        "model_file":
+            "model.model",
 
-        "status": "bootstrap_candidate"
+        "status":
+            "bootstrap_candidate"
     }
 
     (
@@ -414,24 +520,33 @@ def main():
         )
     )
 
-    # Preserve exact bootstrap configuration.
     shutil.copy2(
         cfg_path,
         output / "bootstrap_config.json"
     )
 
     print("")
-    print("==============================================")
-    print("BOOTSTRAP MODEL CREATED")
-    print("==============================================")
-    print(f"Model ID : {model_id}")
-    print(f"Directory: {output}")
+    print(
+        "=============================================="
+    )
+    print(
+        "BOOTSTRAP MODEL CREATED"
+    )
+    print(
+        "=============================================="
+    )
+
+    print(
+        f"Model ID : {model_id}"
+    )
+
+    print(
+        f"Directory: {output}"
+    )
+
     print("")
     print(
         "The model has NOT been marked as production-approved."
-    )
-    print(
-        "Review metadata.json and independent test results first."
     )
 
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,206 +11,193 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
-parser = argparse.ArgumentParser()
-
-parser.add_argument(
-    "--train",
-    required=True
-)
-
-parser.add_argument(
-    "--valid",
-    required=True
-)
-
-parser.add_argument(
-    "--test",
-    default=""
-)
-
-parser.add_argument(
-    "--name",
-    required=True
-)
-
-parser.add_argument(
-    "--work-dir",
-    required=True
-)
-
-parser.add_argument(
-    "--restart-from",
-    default=""
-)
-
-parser.add_argument(
-    "--device",
-    default="cpu"
-)
-
-args = parser.parse_args()
+def load_config():
+    with open(ROOT / "configs" / "update_model.json") as f:
+        return json.load(f)
 
 
-config = json.load(
-    open(
-        ROOT / "configs" / "update_model.json"
-    )
-)
+def main():
 
-mace = config["mace"]
+    parser = argparse.ArgumentParser()
 
-work = Path(
-    args.work_dir
-)
-
-work.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-
-# ------------------------------------------------------------
-# Restore checkpoints when requested.
-# ------------------------------------------------------------
-
-if args.restart_from:
-
-    source = (
-        Path(args.restart_from)
-        / "checkpoints"
+    parser.add_argument(
+        "--train",
+        required=True
     )
 
-    destination = (
-        work / "checkpoints"
+    parser.add_argument(
+        "--valid",
+        required=True
     )
 
-    if (
-        source.exists()
-        and source.resolve()
-        != destination.resolve()
-    ):
+    parser.add_argument(
+        "--name",
+        required=True,
+        help="MACE experiment name. Must remain unchanged during restart."
+    )
 
-        if destination.exists():
-            shutil.rmtree(destination)
+    parser.add_argument(
+        "--work-dir",
+        required=True
+    )
 
-        shutil.copytree(
-            source,
-            destination
+    parser.add_argument(
+        "--device",
+        default="cpu"
+    )
+
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Resume from the latest checkpoint in work-dir."
+    )
+
+    args = parser.parse_args()
+
+    config = load_config()
+    mace = config["mace"]
+
+    work = Path(args.work_dir)
+
+    work.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    checkpoints = work / "checkpoints"
+
+    # ------------------------------------------------------------
+    # Check restart state
+    # ------------------------------------------------------------
+
+    restart = args.restart
+
+    if restart:
+
+        if not checkpoints.exists():
+
+            raise SystemExit(
+                "Restart requested, but checkpoint directory does "
+                f"not exist:\n{checkpoints}"
+            )
+
+        checkpoint_files = list(
+            checkpoints.glob("*.pt")
         )
 
+        if not checkpoint_files:
 
-# ------------------------------------------------------------
-# MACE command.
-# ------------------------------------------------------------
+            raise SystemExit(
+                "Restart requested, but no .pt checkpoint was found "
+                f"in:\n{checkpoints}"
+            )
 
-command = [
+        print("=" * 70)
+        print("MACE RESTART")
+        print("=" * 70)
+        print(f"Work directory : {work}")
+        print(f"Checkpoint dir : {checkpoints}")
+        print("Restart mode   : --restart_latest")
+        print("=" * 70)
 
-    mace["command"],
+    else:
 
-    f"--name={args.name}",
+        print("=" * 70)
+        print("MACE NEW TRAINING")
+        print("=" * 70)
+        print(f"Work directory : {work}")
+        print("Restart mode   : NO")
+        print("=" * 70)
 
-    f"--work_dir={work}",
+    # ------------------------------------------------------------
+    # Build MACE command
+    # ------------------------------------------------------------
 
-    f"--train_file={args.train}",
+    command = [
 
-    f"--valid_file={args.valid}",
+        mace["command"],
 
-    f"--energy_key={mace['energy_key']}",
+        f"--name={args.name}",
 
-    f"--forces_key={mace['forces_key']}",
+        f"--work_dir={work}",
 
-    "--model=MACE",
+        f"--train_file={args.train}",
 
-    "--loss=weighted",
+        f"--valid_file={args.valid}",
 
-    "--E0s=average",
+        f"--energy_key={mace['energy_key']}",
 
-    f"--r_max={mace['r_max']}",
+        f"--forces_key={mace['forces_key']}",
 
-    f"--radial_type={mace['radial_type']}",
+        "--model=MACE",
 
-    f"--num_radial_basis={mace['num_radial_basis']}",
+        "--loss=weighted",
 
-    f"--num_cutoff_basis={mace['num_cutoff_basis']}",
+        "--E0s=average",
 
-    f"--max_ell={mace['max_ell']}",
+        f"--r_max={mace['r_max']}",
 
-    f"--correlation={mace['correlation']}",
+        f"--radial_type={mace['radial_type']}",
 
-    f"--num_interactions={mace['num_interactions']}",
+        f"--num_radial_basis={mace['num_radial_basis']}",
 
-    f"--hidden_irreps={mace['hidden_irreps']}",
+        f"--num_cutoff_basis={mace['num_cutoff_basis']}",
 
-    f"--batch_size={mace['batch_size']}",
+        f"--max_ell={mace['max_ell']}",
 
-    f"--valid_batch_size={mace['valid_batch_size']}",
+        f"--correlation={mace['correlation']}",
 
-    f"--energy_weight={mace['energy_weight']}",
+        f"--num_interactions={mace['num_interactions']}",
 
-    f"--forces_weight={mace['forces_weight']}",
+        f"--hidden_irreps={mace['hidden_irreps']}",
 
-    f"--lr={mace['lr']}",
+        f"--batch_size={mace['batch_size']}",
 
-    f"--max_num_epochs={mace['max_num_epochs']}",
+        f"--valid_batch_size={mace['valid_batch_size']}",
 
-    f"--patience={mace['patience']}",
+        f"--energy_weight={mace['energy_weight']}",
 
-    f"--eval_interval={mace['eval_interval']}",
+        f"--forces_weight={mace['forces_weight']}",
 
-    f"--device={args.device}",
+        f"--lr={mace['lr']}",
 
-    f"--default_dtype={mace['default_dtype']}",
+        f"--max_num_epochs={mace['max_num_epochs']}",
 
-    f"--seed={mace['seed']}",
-]
+        f"--patience={mace['patience']}",
 
+        f"--eval_interval={mace['eval_interval']}",
 
-# ------------------------------------------------------------
-# IMPORTANT:
-#
-# The test set is NOT passed to MACE during training.
-#
-# It will be evaluated separately after training by
-# model_update.py.
-# ------------------------------------------------------------
+        f"--device={args.device}",
 
-if args.restart_from:
+        f"--default_dtype={mace['default_dtype']}",
 
-    command.append(
-        "--restart_latest"
+        f"--seed={mace['seed']}",
+    ]
+
+    # ------------------------------------------------------------
+    # Only add restart_latest when a checkpoint really exists.
+    # ------------------------------------------------------------
+
+    if restart:
+
+        command.append(
+            "--restart_latest"
+        )
+
+    print()
+    print("MACE COMMAND")
+    print("-" * 70)
+    print(
+        " ".join(str(x) for x in command)
+    )
+    print("-" * 70)
+    print()
+
+    subprocess.run(
+        command,
+        check=True
     )
 
 
-print("=" * 70)
-print("MACE TRAINING")
-print("=" * 70)
-
-print(
-    "Training dataset:",
-    args.train
-)
-
-print(
-    "Validation dataset:",
-    args.valid
-)
-
-print(
-    "Test dataset:",
-    "NOT USED DURING TRAINING"
-)
-
-print("=" * 70)
-
-print()
-print(
-    "Running:",
-    " ".join(str(x) for x in command)
-)
-
-print()
-
-subprocess.run(
-    command,
-    check=True
-)
+if __name__ == "__main__":
+    main()
