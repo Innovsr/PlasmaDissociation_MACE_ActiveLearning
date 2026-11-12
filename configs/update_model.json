@@ -1,9 +1,9 @@
 {
-    "source_model": "V005",
+    "source_model": "CF3-CHF-CHF2_ea_001",
     "old_epoch": 6,
     "HPC": {
         "account": "chmdsh_project",
-        "Runfolder": "HFC236ea_active_learning",
+        "Runfolder": "HFC236ea_bootstrap",
         "cores": 16,
 	"hours": "2-00:00:00",
         "memory": 200
@@ -39,7 +39,7 @@
         "forces_weight": 2.0,
         "lr": 0.0002,
         "max_num_epochs": 50,
-        "patience": 3,
+        "patience": 5,
         "eval_interval": 1,
         "default_dtype": "float64",
         "seed": 42

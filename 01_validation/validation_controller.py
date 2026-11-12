@@ -70,9 +70,8 @@ RESTART_MANAGER_PATH = (
     ROOT
     / "restart_manager.py"
 )
-
 FINALIZE_SCRIPT = (
-    PACKAGE_ROOT
+    PACKAGE_ROOT.parent
     / "finalize_validation.py"
 )
 

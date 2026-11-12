@@ -1,30 +1,215 @@
 #!/usr/bin/env python3
-import argparse,json,shutil,subprocess
+
+import argparse
+import json
+import shutil
+import subprocess
 from pathlib import Path
-ROOT=Path(__file__).resolve().parent
-p=argparse.ArgumentParser()
-p.add_argument("--train",required=True);p.add_argument("--valid",required=True);p.add_argument("--test",required=True)
-p.add_argument("--name",required=True);p.add_argument("--work-dir",required=True)
-p.add_argument("--restart-from",default="");p.add_argument("--device",default="cpu")
-a=p.parse_args();c=json.load(open(ROOT/"configs/update_model.json"));m=c["mace"]
-work=Path(a.work_dir);work.mkdir(parents=True,exist_ok=True)
-if a.restart_from:
-    src=Path(a.restart_from)/"checkpoints"
-    dst=work/"checkpoints"
-    if src.exists() and src.resolve() != dst.resolve():
-        if dst.exists():
-            shutil.rmtree(dst)
-        shutil.copytree(src,dst)
-cmd=[m["command"],f"--name={a.name}",f"--work_dir={work}",f"--train_file={a.train}",
-f"--valid_file={a.valid}",f"--test_file={a.test}",f"--energy_key={m['energy_key']}",
-f"--forces_key={m['forces_key']}","--model=MACE","--loss=weighted","--E0s=average",
-f"--r_max={m['r_max']}",f"--radial_type={m['radial_type']}",f"--num_radial_basis={m['num_radial_basis']}",
-f"--num_cutoff_basis={m['num_cutoff_basis']}",f"--max_ell={m['max_ell']}",
-f"--correlation={m['correlation']}",f"--num_interactions={m['num_interactions']}",
-f"--hidden_irreps={m['hidden_irreps']}",f"--batch_size={m['batch_size']}",
-f"--valid_batch_size={m['valid_batch_size']}",f"--energy_weight={m['energy_weight']}",
-f"--forces_weight={m['forces_weight']}",f"--lr={m['lr']}",f"--max_num_epochs={m['max_num_epochs']}",
-f"--patience={m['patience']}",f"--eval_interval={m['eval_interval']}",
-f"--device={a.device}",f"--default_dtype={m['default_dtype']}",f"--seed={m['seed']}"]
-if a.restart_from:cmd.append("--restart_latest")
-subprocess.run(cmd,check=True)
+
+
+ROOT = Path(__file__).resolve().parent
+
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--train",
+    required=True
+)
+
+parser.add_argument(
+    "--valid",
+    required=True
+)
+
+parser.add_argument(
+    "--test",
+    default=""
+)
+
+parser.add_argument(
+    "--name",
+    required=True
+)
+
+parser.add_argument(
+    "--work-dir",
+    required=True
+)
+
+parser.add_argument(
+    "--restart-from",
+    default=""
+)
+
+parser.add_argument(
+    "--device",
+    default="cpu"
+)
+
+args = parser.parse_args()
+
+
+config = json.load(
+    open(
+        ROOT / "configs" / "update_model.json"
+    )
+)
+
+mace = config["mace"]
+
+work = Path(
+    args.work_dir
+)
+
+work.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# ------------------------------------------------------------
+# Restore checkpoints when requested.
+# ------------------------------------------------------------
+
+if args.restart_from:
+
+    source = (
+        Path(args.restart_from)
+        / "checkpoints"
+    )
+
+    destination = (
+        work / "checkpoints"
+    )
+
+    if (
+        source.exists()
+        and source.resolve()
+        != destination.resolve()
+    ):
+
+        if destination.exists():
+            shutil.rmtree(destination)
+
+        shutil.copytree(
+            source,
+            destination
+        )
+
+
+# ------------------------------------------------------------
+# MACE command.
+# ------------------------------------------------------------
+
+command = [
+
+    mace["command"],
+
+    f"--name={args.name}",
+
+    f"--work_dir={work}",
+
+    f"--train_file={args.train}",
+
+    f"--valid_file={args.valid}",
+
+    f"--energy_key={mace['energy_key']}",
+
+    f"--forces_key={mace['forces_key']}",
+
+    "--model=MACE",
+
+    "--loss=weighted",
+
+    "--E0s=average",
+
+    f"--r_max={mace['r_max']}",
+
+    f"--radial_type={mace['radial_type']}",
+
+    f"--num_radial_basis={mace['num_radial_basis']}",
+
+    f"--num_cutoff_basis={mace['num_cutoff_basis']}",
+
+    f"--max_ell={mace['max_ell']}",
+
+    f"--correlation={mace['correlation']}",
+
+    f"--num_interactions={mace['num_interactions']}",
+
+    f"--hidden_irreps={mace['hidden_irreps']}",
+
+    f"--batch_size={mace['batch_size']}",
+
+    f"--valid_batch_size={mace['valid_batch_size']}",
+
+    f"--energy_weight={mace['energy_weight']}",
+
+    f"--forces_weight={mace['forces_weight']}",
+
+    f"--lr={mace['lr']}",
+
+    f"--max_num_epochs={mace['max_num_epochs']}",
+
+    f"--patience={mace['patience']}",
+
+    f"--eval_interval={mace['eval_interval']}",
+
+    f"--device={args.device}",
+
+    f"--default_dtype={mace['default_dtype']}",
+
+    f"--seed={mace['seed']}",
+]
+
+
+# ------------------------------------------------------------
+# IMPORTANT:
+#
+# The test set is NOT passed to MACE during training.
+#
+# It will be evaluated separately after training by
+# model_update.py.
+# ------------------------------------------------------------
+
+if args.restart_from:
+
+    command.append(
+        "--restart_latest"
+    )
+
+
+print("=" * 70)
+print("MACE TRAINING")
+print("=" * 70)
+
+print(
+    "Training dataset:",
+    args.train
+)
+
+print(
+    "Validation dataset:",
+    args.valid
+)
+
+print(
+    "Test dataset:",
+    "NOT USED DURING TRAINING"
+)
+
+print("=" * 70)
+
+print()
+print(
+    "Running:",
+    " ".join(str(x) for x in command)
+)
+
+print()
+
+subprocess.run(
+    command,
+    check=True
+)
