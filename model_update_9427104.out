@@ -1,0 +1,23 @@
+
+============================================================
+MODEL UPDATE GPU WORKER
+============================================================
+Job ID       : 9427104
+Node         : gpu020.aire.lee.alces.network
+ROOT         : /var/spool/slurmd
+CONFIG       : /var/spool/slurmd/configs/update_model.json
+============================================================
+
+Python       : /users/lgjs798/.conda/envs/mace_env/bin/python
+
+============================================================
+ENVIRONMENT CHECK
+============================================================
+Python       : /users/lgjs798/.conda/envs/mace_env/bin/python
+ASE          : 3.29.0
+MACE         : 0.3.16
+PyTorch      : 2.12.1+cu126
+CUDA         : True
+GPU          : NVIDIA L40S
+============================================================
+

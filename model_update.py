@@ -21,6 +21,35 @@ Workflow
 9. Compare source and candidate model performance.
 10. Store the candidate for user approval.
 
+Restart behaviour
+-----------------
+The model-update MACE training uses the preserved checkpoint
+from the source model as its starting point.
+
+First model-update run:
+    source model checkpoint
+            |
+            v
+    02_model_update/<attempt>/mace_work/checkpoints/
+            |
+            v
+       --restart
+            |
+            v
+      MACE --restart_latest
+
+If the model-update SLURM job times out:
+    existing candidate checkpoint
+            |
+            v
+    next chained SLURM job
+            |
+            v
+       --restart
+            |
+            v
+      MACE --restart_latest
+
 Bootstrap workflow is not modified by this script.
 """
 
@@ -47,18 +76,27 @@ ROOT = Path(__file__).resolve().parent
 # ----------------------------------------------------------------------
 
 def load_config(path):
-    return json.loads(Path(path).read_text())
+    return json.loads(
+        Path(path).read_text()
+    )
 
 
 def latest_model(root, requested):
-    model_dir = root / "models" / requested
+    model_dir = (
+        root
+        / "models"
+        / requested
+    )
 
     if not model_dir.exists():
         raise SystemExit(
             f"Approved model not found: {requested}"
         )
 
-    model_file = model_dir / "model.model"
+    model_file = (
+        model_dir
+        / "model.model"
+    )
 
     if not model_file.exists():
         raise SystemExit(
@@ -73,7 +111,10 @@ def extract_training(zip_path, output_dir):
     Extract the largest XYZ/EXTXYZ dataset from training_data.zip.
     """
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
     with zipfile.ZipFile(zip_path) as archive:
 
@@ -91,16 +132,27 @@ def extract_training(zip_path, output_dir):
 
         member = max(
             members,
-            key=lambda name: archive.getinfo(name).file_size
+            key=lambda name:
+                archive.getinfo(name).file_size
         )
 
-        archive.extract(member, output_dir)
+        archive.extract(
+            member,
+            output_dir
+        )
 
-        return output_dir / member
+        return (
+            output_dir
+            / member
+        )
 
 
 def registry_row(root, model_id):
-    registry_file = root / "registry" / "models.csv"
+    registry_file = (
+        root
+        / "registry"
+        / "models.csv"
+    )
 
     if not registry_file.exists():
         return {}
@@ -122,10 +174,18 @@ def run_command(command):
 
     print()
     print("Running:")
-    print(" ".join(str(x) for x in command))
+    print(
+        " ".join(
+            str(x)
+            for x in command
+        )
+    )
     print()
 
-    subprocess.run(command, check=True)
+    subprocess.run(
+        command,
+        check=True
+    )
 
 
 # ----------------------------------------------------------------------
@@ -138,7 +198,11 @@ def main():
 
     parser.add_argument(
         "--config",
-        default=str(ROOT / "configs" / "update_model.json"),
+        default=str(
+            ROOT
+            / "configs"
+            / "update_model.json"
+        ),
     )
 
     parser.add_argument(
@@ -155,7 +219,9 @@ def main():
 
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config = load_config(
+        args.config
+    )
 
     root = ROOT
 
@@ -180,14 +246,23 @@ def main():
 
     source_epoch = int(
         metadata.get("best_epoch")
-        or config.get("old_epoch", 0)
+        or config.get(
+            "old_epoch",
+            0
+        )
     )
 
     print("=" * 70)
     print("ACTIVE-LEARNING MODEL UPDATE")
     print("=" * 70)
-    print(f"Source model : {source}")
-    print(f"Source epoch : {source_epoch}")
+
+    print(
+        f"Source model : {source}"
+    )
+
+    print(
+        f"Source epoch : {source_epoch}"
+    )
 
     # ------------------------------------------------------------------
     # Locate Stage-1 validation dataset
@@ -195,7 +270,9 @@ def main():
 
     if args.validation:
 
-        validation_path = Path(args.validation)
+        validation_path = Path(
+            args.validation
+        )
 
     else:
 
@@ -203,7 +280,10 @@ def main():
             Path("/mnt/scratch")
             / os.environ.get(
                 "USER",
-                os.environ.get("LOGNAME", "unknown")
+                os.environ.get(
+                    "LOGNAME",
+                    "unknown"
+                )
             )
             / config["HPC"]["Runfolder"]
             / "01_validation"
@@ -219,7 +299,9 @@ def main():
             f"Complete Stage 1 first."
         )
 
-    print(f"Validation dataset: {validation_path}")
+    print(
+        f"Validation dataset: {validation_path}"
+    )
 
     # ------------------------------------------------------------------
     # Attempt directory
@@ -229,7 +311,10 @@ def main():
         Path("/mnt/scratch")
         / os.environ.get(
             "USER",
-            os.environ.get("LOGNAME", "unknown")
+            os.environ.get(
+                "LOGNAME",
+                "unknown"
+            )
         )
         / config["HPC"]["Runfolder"]
     )
@@ -248,11 +333,18 @@ def main():
         exist_ok=True
     )
 
-    status_file = attempt_dir / "STATUS"
+    status_file = (
+        attempt_dir
+        / "STATUS"
+    )
 
     if status_file.exists():
 
-        status = status_file.read_text().strip()
+        status = (
+            status_file
+            .read_text()
+            .strip()
+        )
 
         if status in {
             "CANDIDATE_READY_FOR_USER_APPROVAL",
@@ -271,20 +363,24 @@ def main():
     # ------------------------------------------------------------------
 
     (
-        attempt_dir / "source_model.txt"
+        attempt_dir
+        / "source_model.txt"
     ).write_text(
         f"{source}\n"
         f"source_epoch={source_epoch}\n"
     )
 
     full_validation_copy = (
-        attempt_dir / "validation.extxyz"
+        attempt_dir
+        / "validation.extxyz"
     )
 
-    shutil.copy2(
-        validation_path,
-        full_validation_copy,
-    )
+    if not full_validation_copy.exists():
+
+        shutil.copy2(
+            validation_path,
+            full_validation_copy,
+        )
 
     # ------------------------------------------------------------------
     # STEP 1
@@ -301,39 +397,49 @@ def main():
     print("STEP 1: SPLIT VALIDATION TRAJECTORIES")
     print("=" * 70)
 
-    split_dir = attempt_dir / "split"
+    split_dir = (
+        attempt_dir
+        / "split"
+    )
 
     split_script = (
-        root / "split_validation_trajectories.py"
+        root
+        / "split_validation_trajectories.py"
     )
 
     if not split_script.exists():
 
         raise SystemExit(
-            f"Missing split script:\n{split_script}"
+            f"Missing split script:\n"
+            f"{split_script}"
         )
 
     run_command(
         [
             sys.executable,
             str(split_script),
+
             "--input",
             str(full_validation_copy),
+
             "--output-dir",
             str(split_dir),
         ]
     )
 
     training_pool = (
-        split_dir / "training_pool.extxyz"
+        split_dir
+        / "training_pool.extxyz"
     )
 
     validation_set = (
-        split_dir / "validation_set.extxyz"
+        split_dir
+        / "validation_set.extxyz"
     )
 
     test_set = (
-        split_dir / "test_set.extxyz"
+        split_dir
+        / "test_set.extxyz"
     )
 
     # ------------------------------------------------------------------
@@ -349,12 +455,13 @@ def main():
         if not path.exists():
 
             raise SystemExit(
-                f"Expected split file was not created:\n{path}"
+                f"Expected split file was not created:\n"
+                f"{path}"
             )
 
     # ------------------------------------------------------------------
     # STEP 2
-    # Evaluate source model on the TRAINING POOL.
+    # Evaluate source model on TRAINING POOL.
     #
     # This is deliberately separate from the independent validation
     # and test sets.
@@ -366,23 +473,36 @@ def main():
     print("=" * 70)
 
     training_pool_results = (
-        attempt_dir / "training_pool_results.csv"
+        attempt_dir
+        / "training_pool_results.csv"
     )
 
     run_command(
         [
             sys.executable,
-            str(root / "validate_model.py"),
+            str(
+                root
+                / "validate_model.py"
+            ),
+
             "--model",
-            str(model_dir / "model.model"),
+            str(
+                model_dir
+                / "model.model"
+            ),
+
             "--validation",
             str(training_pool),
+
             "--output",
             str(training_pool_results),
+
             "--device",
             config["mace"]["device"],
+
             "--default-dtype",
             config["mace"]["default_dtype"],
+
             "--summary",
             str(
                 attempt_dir
@@ -393,7 +513,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 3
-    # Evaluate source model on the INDEPENDENT VALIDATION SET.
+    # Evaluate source model on INDEPENDENT VALIDATION SET.
     #
     # This set is NOT used to select training configurations.
     # ------------------------------------------------------------------
@@ -404,23 +524,36 @@ def main():
     print("=" * 70)
 
     source_validation_results = (
-        attempt_dir / "source_validation.csv"
+        attempt_dir
+        / "source_validation.csv"
     )
 
     run_command(
         [
             sys.executable,
-            str(root / "validate_model.py"),
+            str(
+                root
+                / "validate_model.py"
+            ),
+
             "--model",
-            str(model_dir / "model.model"),
+            str(
+                model_dir
+                / "model.model"
+            ),
+
             "--validation",
             str(validation_set),
+
             "--output",
             str(source_validation_results),
+
             "--device",
             config["mace"]["device"],
+
             "--default-dtype",
             config["mace"]["default_dtype"],
+
             "--summary",
             str(
                 attempt_dir
@@ -437,17 +570,29 @@ def main():
     )
 
     source_force = float(
-        source_summary["force_rmse_mev_A"]
+        source_summary[
+            "force_rmse_mev_A"
+        ]
     )
 
     source_energy = float(
-        source_summary["energy_rmse_mev_atom"]
+        source_summary[
+            "energy_rmse_mev_atom"
+        ]
     )
 
     print()
     print("SOURCE MODEL VALIDATION")
-    print(f"Force RMSE  : {source_force:.6f} meV/A")
-    print(f"Energy RMSE : {source_energy:.6f} meV/atom")
+
+    print(
+        f"Force RMSE  : "
+        f"{source_force:.6f} meV/A"
+    )
+
+    print(
+        f"Energy RMSE : "
+        f"{source_energy:.6f} meV/atom"
+    )
 
     # ------------------------------------------------------------------
     # If source model already satisfies the validation targets,
@@ -465,7 +610,8 @@ def main():
     ):
 
         (
-            attempt_dir / "STATUS"
+            attempt_dir
+            / "STATUS"
         ).write_text(
             "MODEL_OK_USE_EXISTING\n"
         )
@@ -474,6 +620,7 @@ def main():
         print(
             "Source model meets both validation targets."
         )
+
         print(
             "No model update required."
         )
@@ -482,31 +629,42 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 4
-    # Select high-error configurations ONLY from the training pool.
+    # Select high-error configurations ONLY from training pool.
     # ------------------------------------------------------------------
 
     print()
     print("=" * 70)
-    print("STEP 4: SELECT HIGH-ERROR TRAINING CONFIGURATIONS")
+    print(
+        "STEP 4: SELECT HIGH-ERROR "
+        "TRAINING CONFIGURATIONS"
+    )
     print("=" * 70)
 
     high_error_csv = (
-        attempt_dir / "high_error.csv"
+        attempt_dir
+        / "high_error.csv"
     )
 
     run_command(
         [
             sys.executable,
-            str(root / "select_high_error.py"),
+            str(
+                root
+                / "select_high_error.py"
+            ),
+
             "--results",
             str(training_pool_results),
+
             "--output",
             str(high_error_csv),
+
             "--max-configurations",
             str(
                 config["validation"]
                 ["max_new_configurations"]
             ),
+
             "--force-threshold",
             str(
                 config["validation"]
@@ -547,7 +705,7 @@ def main():
     )
 
     write(
-        new_problematic,
+        str(new_problematic),
         new_frames,
         format="extxyz",
     )
@@ -564,7 +722,8 @@ def main():
     if not new_frames:
 
         (
-            attempt_dir / "STATUS"
+            attempt_dir
+            / "STATUS"
         ).write_text(
             "NO_HIGH_ERROR_CONFIGURATIONS\n"
         )
@@ -586,7 +745,8 @@ def main():
     print("=" * 70)
 
     old_training_zip = (
-        model_dir / "training_data.zip"
+        model_dir
+        / "training_data.zip"
     )
 
     if not old_training_zip.exists():
@@ -597,7 +757,8 @@ def main():
         )
 
     old_training_dir = (
-        attempt_dir / "old_training"
+        attempt_dir
+        / "old_training"
     )
 
     old_training_extxyz = extract_training(
@@ -617,47 +778,63 @@ def main():
 
     total_configurations = (
         config["training_update"]
-        .get("total_configurations")
+        .get(
+            "total_configurations"
+        )
     )
 
     if total_configurations is None:
 
         total_configurations = len(
             read(
-                str(old_training_extxyz),
+                str(
+                    old_training_extxyz
+                ),
                 index=":"
             )
         )
 
     training_path = (
-        attempt_dir / "training.extxyz"
+        attempt_dir
+        / "training.extxyz"
     )
 
     run_command(
         [
             sys.executable,
-            str(root / "build_training_set.py"),
+            str(
+                root
+                / "build_training_set.py"
+            ),
+
             "--old",
             str(old_training_extxyz),
+
             "--new",
             str(new_problematic),
+
             "--output",
             str(training_path),
+
             "--old-percent",
             str(
                 config["training_update"]
                 ["old_data_percent"]
             ),
+
             "--new-percent",
             str(
                 config["training_update"]
                 ["new_data_percent"]
             ),
+
             "--total",
             str(total_configurations),
+
             "--seed",
             str(
-                config["mace"]["seed"]
+                config["mace"]
+                ["seed"]
             ),
         ]
     )
@@ -665,6 +842,26 @@ def main():
     # ------------------------------------------------------------------
     # STEP 7
     # Prepare MACE work directory.
+    #
+    # IMPORTANT:
+    #
+    # The candidate model starts from the existing source-model
+    # checkpoint, NOT from a newly initialised model.
+    #
+    # Source:
+    #
+    # models/<source>/checkpoints/*.pt
+    #
+    # copied to:
+    #
+    # 02_model_update/<attempt>/mace_work/checkpoints/
+    #
+    # train_mace.py then receives --restart and adds
+    # --restart_latest to the MACE command.
+    #
+    # If this script is called again after a timeout, the candidate
+    # checkpoints already exist and are NOT overwritten by the
+    # source checkpoints.
     # ------------------------------------------------------------------
 
     print()
@@ -673,45 +870,189 @@ def main():
     print("=" * 70)
 
     work = (
-        attempt_dir / "mace_work"
+        attempt_dir
+        / "mace_work"
+    )
+
+    work.mkdir(
+        parents=True,
+        exist_ok=True
     )
 
     source_checkpoints = (
-        model_dir / "checkpoints"
+        model_dir
+        / "checkpoints"
     )
 
-    if (
-        not source_checkpoints.exists()
-        and not (work / "checkpoints").exists()
-    ):
+    candidate_checkpoints = (
+        work
+        / "checkpoints"
+    )
+
+    # ------------------------------------------------------------------
+    # Source checkpoints must exist.
+    # ------------------------------------------------------------------
+
+    if not source_checkpoints.exists():
 
         raise SystemExit(
             f"Source model {source} has no preserved "
-            f"MACE checkpoints.\n"
+            f"MACE checkpoints.\n\n"
+            f"Expected:\n"
+            f"{source_checkpoints}\n\n"
             f"The active-learning workflow requires "
             f"the previous optimised epoch."
         )
 
-    if (
-        source_checkpoints.exists()
-        and not (work / "checkpoints").exists()
-    ):
+    source_pt_files = list(
+        source_checkpoints.glob("*.pt")
+    )
+
+    if not source_pt_files:
+
+        raise SystemExit(
+            f"No .pt checkpoint files found in:\n"
+            f"{source_checkpoints}"
+        )
+
+    # ------------------------------------------------------------------
+    # First model-update run:
+    #
+    # copy source checkpoint directory.
+    # ------------------------------------------------------------------
+
+    if not candidate_checkpoints.exists():
+
+        print(
+            "No candidate checkpoint directory exists."
+        )
+
+        print(
+            "Copying source-model checkpoints:"
+        )
+
+        print(
+            f"  {source_checkpoints}"
+        )
+
+        print(
+            "to:"
+        )
+
+        print(
+            f"  {candidate_checkpoints}"
+        )
 
         shutil.copytree(
             source_checkpoints,
-            work / "checkpoints"
+            candidate_checkpoints
         )
+
+        print()
+        print(
+            "Source checkpoint copied successfully."
+        )
+
+    # ------------------------------------------------------------------
+    # Restart/continuation:
+    #
+    # candidate checkpoint directory already exists.
+    #
+    # DO NOT overwrite it with the source checkpoint again.
+    # This is essential after a SLURM timeout.
+    # ------------------------------------------------------------------
+
+    else:
+
+        existing_candidate_checkpoints = list(
+            candidate_checkpoints.glob("*.pt")
+        )
+
+        if not existing_candidate_checkpoints:
+
+            raise SystemExit(
+                "Candidate checkpoint directory exists "
+                "but contains no .pt checkpoint:\n"
+                f"{candidate_checkpoints}"
+            )
+
+        print(
+            "Candidate checkpoint directory already exists."
+        )
+
+        print(
+            "Existing candidate checkpoints will be preserved."
+        )
+
+        print(
+            f"Checkpoint files: "
+            f"{len(existing_candidate_checkpoints)}"
+        )
+
+    # ------------------------------------------------------------------
+    # Display checkpoint information.
+    # ------------------------------------------------------------------
+
+    candidate_checkpoint_files = sorted(
+        candidate_checkpoints.glob("*.pt"),
+        key=lambda path: path.stat().st_mtime
+    )
+
+    print()
+    print(
+        "MACE CHECKPOINT STATE"
+    )
+    print(
+        "-" * 70
+    )
+
+    for checkpoint in candidate_checkpoint_files:
+
+        print(
+            checkpoint.name
+        )
+
+    latest_checkpoint = (
+        candidate_checkpoint_files[-1]
+    )
+
+    print()
+    print(
+        f"Latest checkpoint: "
+        f"{latest_checkpoint.name}"
+    )
+
+    print(
+        f"Checkpoint directory: "
+        f"{candidate_checkpoints}"
+    )
+
+    print()
 
     # ------------------------------------------------------------------
     # STEP 8
     # Train candidate.
     #
-    # IMPORTANT:
-    #     train = updated training set
-    #     valid = independent 20% validation set
-    #     test = NOT passed during training
+    # The candidate always starts/resumes from the checkpoint in
+    # mace_work/checkpoints.
     #
-    # The test set is evaluated only after training.
+    # train_mace.py receives --restart.
+    #
+    # train_mace.py then adds:
+    #
+    #     --restart_latest
+    #
+    # to the mace_run_train command.
+    #
+    # Therefore:
+    #
+    # first run:
+    #
+    # source checkpoint -> candidate training
+    #
+    # timeout:
+    #
+    # candidate checkpoint -> next candidate training
     # ------------------------------------------------------------------
 
     print()
@@ -720,25 +1061,59 @@ def main():
     print("=" * 70)
 
     candidate = (
-        f"{source}_candidate_{attempt_dir.name}"
+        f"{source}"
+        f"_candidate_"
+        f"{attempt_dir.name}"
+    )
+
+    print(
+        f"Candidate name : {candidate}"
+    )
+
+    print(
+        f"Training data  : {training_path}"
+    )
+
+    print(
+        f"Validation data: {validation_set}"
+    )
+
+    print(
+        f"Work directory : {work}"
+    )
+
+    print(
+        f"Restart mode   : YES"
+    )
+
+    print(
+        f"Checkpoint     : {latest_checkpoint.name}"
     )
 
     run_command(
         [
             sys.executable,
-            str(root / "train_mace.py"),
+            str(
+                root
+                / "train_mace.py"
+            ),
+
             "--train",
             str(training_path),
+
             "--valid",
             str(validation_set),
+
             "--name",
             candidate,
+
             "--work-dir",
             str(work),
-            "--restart-from",
-            str(work),
+
             "--device",
             config["mace"]["device"],
+
+            "--restart",
         ]
     )
 
@@ -746,6 +1121,11 @@ def main():
     # STEP 9
     # Locate compiled candidate model.
     # ------------------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("STEP 9: LOCATE CANDIDATE MODEL")
+    print("=" * 70)
 
     candidates = list(
         work.rglob("*.model")
@@ -759,16 +1139,23 @@ def main():
 
     candidate_model_source = max(
         candidates,
-        key=lambda path: path.stat().st_mtime
+        key=lambda path:
+            path.stat().st_mtime
     )
 
     candidate_model = (
-        attempt_dir / "candidate.model"
+        attempt_dir
+        / "candidate.model"
     )
 
     shutil.copy2(
         candidate_model_source,
         candidate_model,
+    )
+
+    print(
+        f"Candidate model: "
+        f"{candidate_model}"
     )
 
     # ------------------------------------------------------------------
@@ -789,17 +1176,26 @@ def main():
     run_command(
         [
             sys.executable,
-            str(root / "validate_model.py"),
+            str(
+                root
+                / "validate_model.py"
+            ),
+
             "--model",
             str(candidate_model),
+
             "--validation",
             str(validation_set),
+
             "--output",
             str(candidate_validation_results),
+
             "--device",
             config["mace"]["device"],
+
             "--default-dtype",
             config["mace"]["default_dtype"],
+
             "--summary",
             str(
                 attempt_dir
@@ -828,17 +1224,26 @@ def main():
     run_command(
         [
             sys.executable,
-            str(root / "validate_model.py"),
+            str(
+                root
+                / "validate_model.py"
+            ),
+
             "--model",
             str(candidate_model),
+
             "--validation",
             str(test_set),
+
             "--output",
             str(candidate_test_results),
+
             "--device",
             config["mace"]["device"],
+
             "--default-dtype",
             config["mace"]["default_dtype"],
+
             "--summary",
             str(
                 attempt_dir
@@ -867,26 +1272,36 @@ def main():
     )
 
     candidate_force = float(
-        candidate_summary["force_rmse_mev_A"]
+        candidate_summary[
+            "force_rmse_mev_A"
+        ]
     )
 
     candidate_energy = float(
-        candidate_summary["energy_rmse_mev_atom"]
+        candidate_summary[
+            "energy_rmse_mev_atom"
+        ]
     )
 
     test_force = float(
-        candidate_test_summary["force_rmse_mev_A"]
+        candidate_test_summary[
+            "force_rmse_mev_A"
+        ]
     )
 
     test_energy = float(
-        candidate_test_summary["energy_rmse_mev_atom"]
+        candidate_test_summary[
+            "energy_rmse_mev_atom"
+        ]
     )
 
     comparison = {
 
-        "source_model": source,
+        "source_model":
+            source,
 
-        "candidate": candidate,
+        "candidate":
+            candidate,
 
         # Source model on independent validation set
         "source_validation_force_rmse_mev_A":
@@ -912,7 +1327,10 @@ def main():
         # Validation improvement
         "validation_force_improvement_percent":
             (
-                (source_force - candidate_force)
+                (
+                    source_force
+                    - candidate_force
+                )
                 / source_force
                 * 100
                 if source_force
@@ -921,7 +1339,10 @@ def main():
 
         "validation_energy_improvement_percent":
             (
-                (source_energy - candidate_energy)
+                (
+                    source_energy
+                    - candidate_energy
+                )
                 / source_energy
                 * 100
                 if source_energy
@@ -930,24 +1351,32 @@ def main():
 
         # Targets
         "validation_target_force_met":
-            candidate_force
-            <= config["validation"]
-            ["force_rmse_target_mev_A"],
+            (
+                candidate_force
+                <= config["validation"]
+                ["force_rmse_target_mev_A"]
+            ),
 
         "validation_target_energy_met":
-            candidate_energy
-            <= config["validation"]
-            ["energy_rmse_target_mev_atom"],
+            (
+                candidate_energy
+                <= config["validation"]
+                ["energy_rmse_target_mev_atom"]
+            ),
 
         "test_target_force_met":
-            test_force
-            <= config["validation"]
-            ["force_rmse_target_mev_A"],
+            (
+                test_force
+                <= config["validation"]
+                ["force_rmse_target_mev_A"]
+            ),
 
         "test_target_energy_met":
-            test_energy
-            <= config["validation"]
-            ["energy_rmse_target_mev_atom"],
+            (
+                test_energy
+                <= config["validation"]
+                ["energy_rmse_target_mev_atom"]
+            ),
     }
 
     # ------------------------------------------------------------------
@@ -955,7 +1384,8 @@ def main():
     # ------------------------------------------------------------------
 
     (
-        attempt_dir / "comparison.json"
+        attempt_dir
+        / "comparison.json"
     ).write_text(
         json.dumps(
             comparison,
@@ -965,7 +1395,8 @@ def main():
     )
 
     (
-        attempt_dir / "STATUS"
+        attempt_dir
+        / "STATUS"
     ).write_text(
         "CANDIDATE_READY_FOR_USER_APPROVAL\n"
     )
@@ -987,16 +1418,21 @@ def main():
     )
 
     print()
+
     print(
-        f"Candidate model: {candidate_model}"
+        f"Candidate model: "
+        f"{candidate_model}"
     )
 
     print(
-        f"Attempt directory: {attempt_dir}"
+        f"Attempt directory: "
+        f"{attempt_dir}"
     )
 
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        main()
+    )
