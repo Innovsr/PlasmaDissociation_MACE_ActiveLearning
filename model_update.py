@@ -5,28 +5,54 @@ Active-learning model update workflow.
 
 Workflow
 --------
-1. Take the completed validation.extxyz from Stage 1.
+
+1. Take the completed Stage-1 validation.extxyz.
+
 2. Split trajectories in blocks of 10:
+
        7 trajectories -> training pool
        2 trajectories -> validation
        1 trajectory   -> test
+
 3. Evaluate the source model on the training pool.
+
 4. Select high-error configurations ONLY from the training pool.
+
 5. Combine old source-model training data with selected new data.
+
 6. Train a candidate MACE model using:
+
        training.extxyz
        validation_set.extxyz
+
 7. Evaluate the candidate on the independent validation set.
+
 8. Evaluate the candidate on the independent test set.
+
 9. Compare source and candidate model performance.
-10. Store the candidate for user approval.
+
+10. Create:
+
+       attempt_001/
+       |
+       +-- model/
+       |
+       +-- results/
+
+The model directory contains the complete candidate model package.
+
+The results directory contains all evaluation information.
+
+No model is automatically promoted into models/.
 
 Restart behaviour
 -----------------
+
 The model-update MACE training uses the preserved checkpoint
 from the source model as its starting point.
 
 First model-update run:
+
     source model checkpoint
             |
             v
@@ -39,6 +65,7 @@ First model-update run:
       MACE --restart_latest
 
 If the model-update SLURM job times out:
+
     existing candidate checkpoint
             |
             v
@@ -49,6 +76,9 @@ If the model-update SLURM job times out:
             |
             v
       MACE --restart_latest
+
+The existing candidate checkpoint is NOT overwritten by the
+source checkpoint on restart.
 
 Bootstrap workflow is not modified by this script.
 """
@@ -77,12 +107,20 @@ ROOT = Path(__file__).resolve().parent
 # ----------------------------------------------------------------------
 
 def load_config(path):
+    """
+    Load JSON configuration.
+    """
+
     return json.loads(
         Path(path).read_text()
     )
 
 
 def latest_model(root, requested):
+    """
+    Locate an approved source model.
+    """
+
     model_dir = (
         root
         / "models"
@@ -90,6 +128,7 @@ def latest_model(root, requested):
     )
 
     if not model_dir.exists():
+
         raise SystemExit(
             f"Approved model not found: {requested}"
         )
@@ -100,6 +139,7 @@ def latest_model(root, requested):
     )
 
     if not model_file.exists():
+
         raise SystemExit(
             f"Missing model file: {model_file}"
         )
@@ -127,6 +167,7 @@ def extract_training(zip_path, output_dir):
         ]
 
         if not members:
+
             raise SystemExit(
                 "Training archive contains no EXTXYZ/XYZ dataset."
             )
@@ -149,6 +190,10 @@ def extract_training(zip_path, output_dir):
 
 
 def registry_row(root, model_id):
+    """
+    Return the registry row for a model if the registry exists.
+    """
+
     registry_file = (
         root
         / "registry"
@@ -156,6 +201,7 @@ def registry_row(root, model_id):
     )
 
     if not registry_file.exists():
+
         return {}
 
     with registry_file.open() as f:
@@ -163,17 +209,31 @@ def registry_row(root, model_id):
         for row in csv.DictReader(f):
 
             if row.get("model_id") == model_id:
+
                 return row
 
     return {}
 
 
 def find_source_checkpoint(model_dir):
-    """Find the highest-numbered MACE .pt checkpoint."""
+    """
+    Find the highest-numbered MACE .pt checkpoint.
 
-    checkpoint_dir = model_dir / "checkpoints"
+    Example:
+
+        bootstrap_x_epoch-49.pt
+        bootstrap_x_epoch-50.pt
+
+    returns epoch 50.
+    """
+
+    checkpoint_dir = (
+        model_dir
+        / "checkpoints"
+    )
 
     if not checkpoint_dir.exists():
+
         raise SystemExit(
             f"Source model has no checkpoint directory:\n"
             f"{checkpoint_dir}"
@@ -184,22 +244,31 @@ def find_source_checkpoint(model_dir):
     )
 
     if not checkpoint_files:
+
         raise SystemExit(
             f"No MACE checkpoint (*.pt) found in:\n"
             f"{checkpoint_dir}"
         )
 
     def checkpoint_epoch(path):
+
         match = re.search(
             r"epoch[-_]?(\d+)",
             path.name,
             flags=re.IGNORECASE,
         )
 
-        return int(match.group(1)) if match else -1
+        return (
+            int(match.group(1))
+            if match
+            else -1
+        )
 
     numbered = [
-        (checkpoint_epoch(path), path)
+        (
+            checkpoint_epoch(path),
+            path
+        )
         for path in checkpoint_files
     ]
 
@@ -213,11 +282,16 @@ def find_source_checkpoint(model_dir):
     epoch, checkpoint = numbered[-1]
 
     if epoch < 0:
+
         raise SystemExit(
             "Could not determine epoch from checkpoint filename."
         )
 
-    return checkpoint, epoch
+    return (
+        checkpoint,
+        epoch
+    )
+
 
 def run_command(command):
     """
@@ -226,18 +300,659 @@ def run_command(command):
 
     print()
     print("Running:")
+
     print(
         " ".join(
             str(x)
             for x in command
         )
     )
+
     print()
 
     subprocess.run(
         command,
         check=True
     )
+
+
+# ----------------------------------------------------------------------
+# Package candidate model and results
+# ----------------------------------------------------------------------
+
+def package_candidate(
+    attempt_dir,
+    candidate_model,
+    work,
+    source_model_dir,
+    source_model,
+    source_checkpoint,
+    source_epoch,
+    training_path,
+    validation_set,
+    test_set,
+    comparison,
+    config_path,
+):
+    """
+    Create the final candidate package.
+
+    Structure:
+
+        attempt_001/
+        |
+        +-- model/
+        |   |
+        |   +-- update_model.json
+        |   +-- metadata.json
+        |   +-- model.model
+        |   +-- training_data.zip
+        |   +-- validation_data.zip
+        |   +-- test_data.zip
+        |   |
+        |   +-- checkpoints/
+        |   |       +-- *.pt
+        |   |
+        |   +-- logs/
+        |
+        +-- results/
+            |
+            +-- comparison.json
+            +-- candidate_summary.json
+            +-- candidate_test_summary.json
+            +-- candidate_validation.csv
+            +-- candidate_test.csv
+            +-- source_summary.json
+            +-- source_validation.csv
+            +-- training_pool_summary.json
+            +-- training_pool_results.csv
+            +-- high_error.csv
+
+    Nothing is automatically copied into the official models/
+    directory.
+
+    The model directory is therefore the candidate package that
+    can later be manually promoted.
+    """
+
+    # ==============================================================
+    # DIRECTORIES
+    # ==============================================================
+
+    model_package = (
+        attempt_dir
+        / "model"
+    )
+
+    results_dir = (
+        attempt_dir
+        / "results"
+    )
+
+    logs_dir = (
+        model_package
+        / "logs"
+    )
+
+    checkpoints_dir = (
+        model_package
+        / "checkpoints"
+    )
+
+    # --------------------------------------------------------------
+    # Remove an old package if it is being regenerated.
+    # --------------------------------------------------------------
+
+    if model_package.exists():
+
+        shutil.rmtree(
+            model_package
+        )
+
+    if results_dir.exists():
+
+        shutil.rmtree(
+            results_dir
+        )
+
+    model_package.mkdir(
+        parents=True,
+        exist_ok=False
+    )
+
+    results_dir.mkdir(
+        parents=True,
+        exist_ok=False
+    )
+
+    logs_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    # ==============================================================
+    # 1. CANDIDATE MODEL
+    # ==============================================================
+
+    if not Path(candidate_model).exists():
+
+        raise SystemExit(
+            "Candidate model does not exist:\n"
+            f"{candidate_model}"
+        )
+
+    shutil.copy2(
+        candidate_model,
+        model_package
+        / "model.model"
+    )
+
+    # ==============================================================
+    # 2. CANDIDATE CHECKPOINTS
+    # ==============================================================
+
+    source_checkpoint_dir = (
+        work
+        / "checkpoints"
+    )
+
+    if not source_checkpoint_dir.exists():
+
+        raise SystemExit(
+            "Candidate checkpoint directory does not exist:\n"
+            f"{source_checkpoint_dir}"
+        )
+
+    checkpoint_files = list(
+        source_checkpoint_dir.glob("*.pt")
+    )
+
+    if not checkpoint_files:
+
+        raise SystemExit(
+            "No candidate .pt checkpoints found:\n"
+            f"{source_checkpoint_dir}"
+        )
+
+    shutil.copytree(
+        source_checkpoint_dir,
+        checkpoints_dir
+    )
+
+    # ==============================================================
+    # 3. DATA ZIP HELPER
+    # ==============================================================
+
+    def create_dataset_zip(
+        input_file,
+        output_file,
+        archive_name,
+    ):
+
+        input_file = Path(
+            input_file
+        )
+
+        if not input_file.exists():
+
+            raise SystemExit(
+                "Cannot package dataset because it does not exist:\n"
+                f"{input_file}"
+            )
+
+        with zipfile.ZipFile(
+            output_file,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+
+            archive.write(
+                input_file,
+                arcname=archive_name
+            )
+
+    # ==============================================================
+    # 4. TRAINING DATA
+    # ==============================================================
+
+    create_dataset_zip(
+        training_path,
+        model_package
+        / "training_data.zip",
+        "training.extxyz",
+    )
+
+    # ==============================================================
+    # 5. VALIDATION DATA
+    # ==============================================================
+
+    create_dataset_zip(
+        validation_set,
+        model_package
+        / "validation_data.zip",
+        "validation.extxyz",
+    )
+
+    # ==============================================================
+    # 6. TEST DATA
+    # ==============================================================
+
+    create_dataset_zip(
+        test_set,
+        model_package
+        / "test_data.zip",
+        "test.extxyz",
+    )
+
+    # ==============================================================
+    # 7. UPDATE_MODEL.JSON
+    #
+    # Copy the EXACT configuration used for this run.
+    # ==============================================================
+
+    config_source = Path(
+        config_path
+    )
+
+    if not config_source.exists():
+
+        raise SystemExit(
+            "Could not find update_model.json used for this run:\n"
+            f"{config_source}"
+        )
+
+    shutil.copy2(
+        config_source,
+        model_package
+        / "update_model.json"
+    )
+
+    # ==============================================================
+    # 8. METADATA.JSON
+    # ==============================================================
+
+    promotion_ok = (
+        comparison[
+            "validation_target_force_met"
+        ]
+        and
+        comparison[
+            "validation_target_energy_met"
+        ]
+        and
+        comparison[
+            "test_target_force_met"
+        ]
+        and
+        comparison[
+            "test_target_energy_met"
+        ]
+    )
+
+    metadata = {
+
+        "model_id":
+            "MANUAL_RENAME_REQUIRED",
+
+        "source_model":
+            source_model,
+
+        "source_checkpoint":
+            source_checkpoint.name,
+
+        "source_epoch":
+            source_epoch,
+
+        "candidate":
+            comparison["candidate"],
+
+        "workflow":
+            "active_learning",
+
+        "status":
+            "READY_FOR_MANUAL_REVIEW",
+
+        "promotion_criteria_met":
+            promotion_ok,
+
+        "files": {
+
+            "model":
+                "model.model",
+
+            "training_data":
+                "training_data.zip",
+
+            "validation_data":
+                "validation_data.zip",
+
+            "test_data":
+                "test_data.zip",
+
+            "checkpoints":
+                "checkpoints/",
+
+            "logs":
+                "logs/",
+
+            "configuration":
+                "update_model.json",
+
+            "results":
+                "../results/",
+        },
+
+        "performance": {
+
+            "source_validation_force_rmse_mev_A":
+                comparison[
+                    "source_validation_force_rmse_mev_A"
+                ],
+
+            "source_validation_energy_rmse_mev_atom":
+                comparison[
+                    "source_validation_energy_rmse_mev_atom"
+                ],
+
+            "candidate_validation_force_rmse_mev_A":
+                comparison[
+                    "candidate_validation_force_rmse_mev_A"
+                ],
+
+            "candidate_validation_energy_rmse_mev_atom":
+                comparison[
+                    "candidate_validation_energy_rmse_mev_atom"
+                ],
+
+            "candidate_test_force_rmse_mev_A":
+                comparison[
+                    "candidate_test_force_rmse_mev_A"
+                ],
+
+            "candidate_test_energy_rmse_mev_atom":
+                comparison[
+                    "candidate_test_energy_rmse_mev_atom"
+                ],
+        },
+    }
+
+    (
+        model_package
+        / "metadata.json"
+    ).write_text(
+        json.dumps(
+            metadata,
+            indent=4
+        )
+        + "\n"
+    )
+
+    # ==============================================================
+    # 9. RESULTS
+    # ==============================================================
+
+    result_files = [
+
+        "comparison.json",
+
+        "candidate_summary.json",
+
+        "candidate_test_summary.json",
+
+        "candidate_validation.csv",
+
+        "candidate_test.csv",
+
+        "source_summary.json",
+
+        "source_validation.csv",
+
+        "training_pool_summary.json",
+
+        "training_pool_results.csv",
+
+        "high_error.csv",
+    ]
+
+    for filename in result_files:
+
+        source_file = (
+            attempt_dir
+            / filename
+        )
+
+        if source_file.exists():
+
+            shutil.copy2(
+                source_file,
+                results_dir
+                / filename
+            )
+
+    # ==============================================================
+    # 10. LOGS
+    #
+    # Copy useful logs from mace_work and attempt directory.
+    # ==============================================================
+
+    if work.exists():
+
+        for log_file in work.rglob("*"):
+
+            if not log_file.is_file():
+
+                continue
+
+            if log_file.suffix.lower() not in {
+                ".log",
+                ".out",
+                ".err",
+            }:
+
+                continue
+
+            relative_path = (
+                log_file.relative_to(work)
+            )
+
+            destination = (
+                logs_dir
+                / "mace_work"
+                / relative_path
+            )
+
+            destination.parent.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            shutil.copy2(
+                log_file,
+                destination
+            )
+
+    # --------------------------------------------------------------
+    # Copy attempt-level logs.
+    # --------------------------------------------------------------
+
+    for log_file in attempt_dir.iterdir():
+
+        if not log_file.is_file():
+
+            continue
+
+        if log_file.suffix.lower() not in {
+            ".log",
+            ".out",
+            ".err",
+        }:
+
+            continue
+
+        if log_file.name in result_files:
+
+            continue
+
+        shutil.copy2(
+            log_file,
+            logs_dir
+            / log_file.name
+        )
+
+    # ==============================================================
+    # 11. SAVE PACKAGE INFORMATION
+    # ==============================================================
+
+    package_info = {
+
+        "source_model":
+            source_model,
+
+        "source_checkpoint":
+            source_checkpoint.name,
+
+        "source_epoch":
+            source_epoch,
+
+        "candidate":
+            comparison["candidate"],
+
+        "status":
+            "READY_FOR_MANUAL_REVIEW",
+
+        "promotion_criteria_met":
+            promotion_ok,
+
+        "model_directory":
+            str(model_package),
+
+        "results_directory":
+            str(results_dir),
+
+        "model_file":
+            "model.model",
+
+        "configuration":
+            "update_model.json",
+
+        "training_data":
+            "training_data.zip",
+
+        "validation_data":
+            "validation_data.zip",
+
+        "test_data":
+            "test_data.zip",
+
+        "checkpoints":
+            "checkpoints/",
+
+        "logs":
+            "logs/",
+    }
+
+    (
+        model_package
+        / "package_info.json"
+    ).write_text(
+        json.dumps(
+            package_info,
+            indent=4
+        )
+        + "\n"
+    )
+
+    # ==============================================================
+    # 12. PRINT FINAL PACKAGE INFORMATION
+    # ==============================================================
+
+    print()
+    print("=" * 70)
+    print("MODEL PACKAGE CREATED")
+    print("=" * 70)
+
+    print(
+        f"Model package : {model_package}"
+    )
+
+    print(
+        f"Results       : {results_dir}"
+    )
+
+    print(
+        f"Promotion criteria met: {promotion_ok}"
+    )
+
+    print()
+    print("MODEL PACKAGE CONTENTS")
+    print("-" * 70)
+
+    print(
+        "update_model.json"
+    )
+
+    print(
+        "metadata.json"
+    )
+
+    print(
+        "package_info.json"
+    )
+
+    print(
+        "model.model"
+    )
+
+    print(
+        "training_data.zip"
+    )
+
+    print(
+        "validation_data.zip"
+    )
+
+    print(
+        "test_data.zip"
+    )
+
+    print(
+        "checkpoints/"
+    )
+
+    print(
+        "logs/"
+    )
+
+    print()
+    print("RESULT FILES")
+    print("-" * 70)
+
+    for filename in result_files:
+
+        if (
+            results_dir
+            / filename
+        ).exists():
+
+            print(
+                filename
+            )
+
+    print()
+    print(
+        "IMPORTANT:"
+    )
+
+    print(
+        "Nothing has been copied to the official models/"
+        " directory."
+    )
+
+    print(
+        "Manual promotion is required."
+    )
+
+    return model_package
 
 
 # ----------------------------------------------------------------------
@@ -271,6 +986,10 @@ def main():
 
     args = parser.parse_args()
 
+    # ------------------------------------------------------------------
+    # Load configuration
+    # ------------------------------------------------------------------
+
     config = load_config(
         args.config
     )
@@ -295,23 +1014,19 @@ def main():
         root,
         source,
     )
-    
-    source_checkpoint, source_epoch = find_source_checkpoint(
-        model_dir
-    )
 
-#    metadata = registry_row(
-#        root,
-#        source,
-#    )
-#
-#    source_epoch = int(
-#        metadata.get("best_epoch")
-#        or config.get(
-#            "old_epoch",
-#            0
-#        )
-#    )
+    # ------------------------------------------------------------------
+    # Find source checkpoint
+    #
+    # This determines the actual highest epoch checkpoint from the
+    # approved source model.
+    # ------------------------------------------------------------------
+
+    source_checkpoint, source_epoch = (
+        find_source_checkpoint(
+            model_dir
+        )
+    )
 
     print("=" * 70)
     print("ACTIVE-LEARNING MODEL UPDATE")
@@ -320,21 +1035,16 @@ def main():
     print(
         f"Source model      : {source}"
     )
-    
+
     print(
-        f"Source checkpoint : {source_checkpoint.name}"
+        f"Source checkpoint : "
+        f"{source_checkpoint.name}"
     )
-    
+
     print(
-        f"Source epoch      : {source_epoch}"
+        f"Source epoch      : "
+        f"{source_epoch}"
     )
-#    print(
-#        f"Source model : {source}"
-#    )
-#
-#    print(
-#        f"Source epoch : {source_epoch}"
-#    )
 
     # ------------------------------------------------------------------
     # Locate Stage-1 validation dataset
@@ -372,7 +1082,8 @@ def main():
         )
 
     print(
-        f"Validation dataset: {validation_path}"
+        f"Validation dataset: "
+        f"{validation_path}"
     )
 
     # ------------------------------------------------------------------
@@ -410,6 +1121,12 @@ def main():
         / "STATUS"
     )
 
+    # ------------------------------------------------------------------
+    # Only stop automatically for a genuinely completed attempt.
+    #
+    # Do NOT stop merely because model/ or results/ exists.
+    # ------------------------------------------------------------------
+
     if status_file.exists():
 
         status = (
@@ -420,6 +1137,7 @@ def main():
 
         if status in {
             "CANDIDATE_READY_FOR_USER_APPROVAL",
+            "READY_FOR_MANUAL_REVIEW",
             "NO_HIGH_ERROR_CONFIGURATIONS",
             "MODEL_OK_USE_EXISTING",
         }:
@@ -439,6 +1157,7 @@ def main():
         / "source_model.txt"
     ).write_text(
         f"{source}\n"
+        f"source_checkpoint={source_checkpoint.name}\n"
         f"source_epoch={source_epoch}\n"
     )
 
@@ -456,9 +1175,11 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 1
-    # Split trajectories:
+    #
+    # Split validation trajectories:
     #
     # Every 10:
+    #
     #     7 training
     #     2 validation
     #     1 test
@@ -489,13 +1210,22 @@ def main():
     run_command(
         [
             sys.executable,
-            str(split_script),
+
+            str(
+                split_script
+            ),
 
             "--input",
-            str(full_validation_copy),
+
+            str(
+                full_validation_copy
+            ),
 
             "--output-dir",
-            str(split_dir),
+
+            str(
+                split_dir
+            ),
         ]
     )
 
@@ -533,10 +1263,8 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 2
-    # Evaluate source model on TRAINING POOL.
     #
-    # This is deliberately separate from the independent validation
-    # and test sets.
+    # Evaluate source model on TRAINING POOL.
     # ------------------------------------------------------------------
 
     print()
@@ -552,30 +1280,41 @@ def main():
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "validate_model.py"
             ),
 
             "--model",
+
             str(
                 model_dir
                 / "model.model"
             ),
 
             "--validation",
-            str(training_pool),
+
+            str(
+                training_pool
+            ),
 
             "--output",
-            str(training_pool_results),
+
+            str(
+                training_pool_results
+            ),
 
             "--device",
+
             config["mace"]["device"],
 
             "--default-dtype",
+
             config["mace"]["default_dtype"],
 
             "--summary",
+
             str(
                 attempt_dir
                 / "training_pool_summary.json"
@@ -585,9 +1324,8 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 3
-    # Evaluate source model on INDEPENDENT VALIDATION SET.
     #
-    # This set is NOT used to select training configurations.
+    # Evaluate source model on independent validation set.
     # ------------------------------------------------------------------
 
     print()
@@ -603,30 +1341,41 @@ def main():
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "validate_model.py"
             ),
 
             "--model",
+
             str(
                 model_dir
                 / "model.model"
             ),
 
             "--validation",
-            str(validation_set),
+
+            str(
+                validation_set
+            ),
 
             "--output",
-            str(source_validation_results),
+
+            str(
+                source_validation_results
+            ),
 
             "--device",
+
             config["mace"]["device"],
 
             "--default-dtype",
+
             config["mace"]["default_dtype"],
 
             "--summary",
+
             str(
                 attempt_dir
                 / "source_summary.json"
@@ -667,8 +1416,8 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # If source model already satisfies the validation targets,
-    # there is no reason to update it.
+    # If source model already satisfies validation targets,
+    # no model update is required.
     # ------------------------------------------------------------------
 
     if (
@@ -701,6 +1450,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 4
+    #
     # Select high-error configurations ONLY from training pool.
     # ------------------------------------------------------------------
 
@@ -720,24 +1470,33 @@ def main():
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "select_high_error.py"
             ),
 
             "--results",
-            str(training_pool_results),
+
+            str(
+                training_pool_results
+            ),
 
             "--output",
-            str(high_error_csv),
+
+            str(
+                high_error_csv
+            ),
 
             "--max-configurations",
+
             str(
                 config["validation"]
                 ["max_new_configurations"]
             ),
 
             "--force-threshold",
+
             str(
                 config["validation"]
                 ["high_error_force_threshold_mev_A"]
@@ -761,7 +1520,9 @@ def main():
         )
 
     indices = [
-        int(row["configuration"])
+        int(
+            row["configuration"]
+        )
         for row in high_error_rows
     ]
 
@@ -808,6 +1569,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 5
+    #
     # Extract old training data from source model.
     # ------------------------------------------------------------------
 
@@ -840,6 +1602,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 6
+    #
     # Build updated training set.
     # ------------------------------------------------------------------
 
@@ -874,36 +1637,52 @@ def main():
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "build_training_set.py"
             ),
 
             "--old",
-            str(old_training_extxyz),
+
+            str(
+                old_training_extxyz
+            ),
 
             "--new",
-            str(new_problematic),
+
+            str(
+                new_problematic
+            ),
 
             "--output",
-            str(training_path),
+
+            str(
+                training_path
+            ),
 
             "--old-percent",
+
             str(
                 config["training_update"]
                 ["old_data_percent"]
             ),
 
             "--new-percent",
+
             str(
                 config["training_update"]
                 ["new_data_percent"]
             ),
 
             "--total",
-            str(total_configurations),
+
+            str(
+                total_configurations
+            ),
 
             "--seed",
+
             str(
                 config["mace"]
                 ["seed"]
@@ -913,6 +1692,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 7
+    #
     # Prepare MACE work directory.
     #
     # IMPORTANT:
@@ -922,18 +1702,18 @@ def main():
     #
     # Source:
     #
-    # models/<source>/checkpoints/*.pt
+    #     models/<source>/checkpoints/*.pt
     #
     # copied to:
     #
-    # 02_model_update/<attempt>/mace_work/checkpoints/
+    #     02_model_update/<attempt>/mace_work/checkpoints/
     #
-    # train_mace.py then receives --restart and adds
-    # --restart_latest to the MACE command.
+    # train_mace.py receives --restart.
     #
-    # If this script is called again after a timeout, the candidate
-    # checkpoints already exist and are NOT overwritten by the
-    # source checkpoints.
+    # train_mace.py then adds --restart_latest to MACE.
+    #
+    # If this script is restarted after timeout, the existing
+    # candidate checkpoints are preserved.
     # ------------------------------------------------------------------
 
     print()
@@ -990,7 +1770,7 @@ def main():
     # ------------------------------------------------------------------
     # First model-update run:
     #
-    # copy source checkpoint directory.
+    # Copy source checkpoint directory.
     # ------------------------------------------------------------------
 
     if not candidate_checkpoints.exists():
@@ -1028,10 +1808,9 @@ def main():
     # ------------------------------------------------------------------
     # Restart/continuation:
     #
-    # candidate checkpoint directory already exists.
+    # Candidate checkpoint directory already exists.
     #
-    # DO NOT overwrite it with the source checkpoint again.
-    # This is essential after a SLURM timeout.
+    # DO NOT overwrite it with source checkpoint again.
     # ------------------------------------------------------------------
 
     else:
@@ -1067,7 +1846,8 @@ def main():
 
     candidate_checkpoint_files = sorted(
         candidate_checkpoints.glob("*.pt"),
-        key=lambda path: path.stat().st_mtime
+        key=lambda path:
+            path.stat().st_mtime
     )
 
     print()
@@ -1103,28 +1883,8 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 8
+    #
     # Train candidate.
-    #
-    # The candidate always starts/resumes from the checkpoint in
-    # mace_work/checkpoints.
-    #
-    # train_mace.py receives --restart.
-    #
-    # train_mace.py then adds:
-    #
-    #     --restart_latest
-    #
-    # to the mace_run_train command.
-    #
-    # Therefore:
-    #
-    # first run:
-    #
-    # source checkpoint -> candidate training
-    #
-    # timeout:
-    #
-    # candidate checkpoint -> next candidate training
     # ------------------------------------------------------------------
 
     print()
@@ -1139,50 +1899,67 @@ def main():
     )
 
     print(
-        f"Candidate name : {candidate}"
+        f"Candidate name : "
+        f"{candidate}"
     )
 
     print(
-        f"Training data  : {training_path}"
+        f"Training data  : "
+        f"{training_path}"
     )
 
     print(
-        f"Validation data: {validation_set}"
+        f"Validation data: "
+        f"{validation_set}"
     )
 
     print(
-        f"Work directory : {work}"
+        f"Work directory : "
+        f"{work}"
     )
 
     print(
-        f"Restart mode   : YES"
+        "Restart mode   : YES"
     )
 
     print(
-        f"Checkpoint     : {latest_checkpoint.name}"
+        f"Checkpoint     : "
+        f"{latest_checkpoint.name}"
     )
 
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "train_mace.py"
             ),
 
             "--train",
-            str(training_path),
+
+            str(
+                training_path
+            ),
 
             "--valid",
-            str(validation_set),
+
+            str(
+                validation_set
+            ),
 
             "--name",
+
             candidate,
 
             "--work-dir",
-            str(work),
+
+            str(
+                work
+            ),
 
             "--device",
+
             config["mace"]["device"],
 
             "--restart",
@@ -1191,6 +1968,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 9
+    #
     # Locate compiled candidate model.
     # ------------------------------------------------------------------
 
@@ -1232,6 +2010,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 10
+    #
     # Evaluate candidate on independent validation set.
     # ------------------------------------------------------------------
 
@@ -1248,27 +2027,40 @@ def main():
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "validate_model.py"
             ),
 
             "--model",
-            str(candidate_model),
+
+            str(
+                candidate_model
+            ),
 
             "--validation",
-            str(validation_set),
+
+            str(
+                validation_set
+            ),
 
             "--output",
-            str(candidate_validation_results),
+
+            str(
+                candidate_validation_results
+            ),
 
             "--device",
+
             config["mace"]["device"],
 
             "--default-dtype",
+
             config["mace"]["default_dtype"],
 
             "--summary",
+
             str(
                 attempt_dir
                 / "candidate_summary.json"
@@ -1278,6 +2070,7 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 11
+    #
     # FINAL TEST
     #
     # This is the first time the candidate model sees the test set.
@@ -1296,27 +2089,40 @@ def main():
     run_command(
         [
             sys.executable,
+
             str(
                 root
                 / "validate_model.py"
             ),
 
             "--model",
-            str(candidate_model),
+
+            str(
+                candidate_model
+            ),
 
             "--validation",
-            str(test_set),
+
+            str(
+                test_set
+            ),
 
             "--output",
-            str(candidate_test_results),
+
+            str(
+                candidate_test_results
+            ),
 
             "--device",
+
             config["mace"]["device"],
 
             "--default-dtype",
+
             config["mace"]["default_dtype"],
 
             "--summary",
+
             str(
                 attempt_dir
                 / "candidate_test_summary.json"
@@ -1326,7 +2132,8 @@ def main():
 
     # ------------------------------------------------------------------
     # STEP 12
-    # Compare source and candidate on VALIDATION.
+    #
+    # Compare source and candidate.
     # ------------------------------------------------------------------
 
     candidate_summary = json.loads(
@@ -1372,31 +2179,49 @@ def main():
         "source_model":
             source,
 
+        "source_checkpoint":
+            source_checkpoint.name,
+
+        "source_epoch":
+            source_epoch,
+
         "candidate":
             candidate,
 
+        # ----------------------------------------------------------
         # Source model on independent validation set
+        # ----------------------------------------------------------
+
         "source_validation_force_rmse_mev_A":
             source_force,
 
         "source_validation_energy_rmse_mev_atom":
             source_energy,
 
+        # ----------------------------------------------------------
         # Candidate on independent validation set
+        # ----------------------------------------------------------
+
         "candidate_validation_force_rmse_mev_A":
             candidate_force,
 
         "candidate_validation_energy_rmse_mev_atom":
             candidate_energy,
 
-        # Candidate on completely untouched test set
+        # ----------------------------------------------------------
+        # Candidate on untouched test set
+        # ----------------------------------------------------------
+
         "candidate_test_force_rmse_mev_A":
             test_force,
 
         "candidate_test_energy_rmse_mev_atom":
             test_energy,
 
+        # ----------------------------------------------------------
         # Validation improvement
+        # ----------------------------------------------------------
+
         "validation_force_improvement_percent":
             (
                 (
@@ -1421,7 +2246,10 @@ def main():
                 else 0.0
             ),
 
-        # Targets
+        # ----------------------------------------------------------
+        # Validation targets
+        # ----------------------------------------------------------
+
         "validation_target_force_met":
             (
                 candidate_force
@@ -1435,6 +2263,10 @@ def main():
                 <= config["validation"]
                 ["energy_rmse_target_mev_atom"]
             ),
+
+        # ----------------------------------------------------------
+        # Test targets
+        # ----------------------------------------------------------
 
         "test_target_force_met":
             (
@@ -1452,13 +2284,17 @@ def main():
     }
 
     # ------------------------------------------------------------------
-    # Save comparison
+    # Save comparison at attempt level first.
+    #
+    # package_candidate() will copy it into results/.
     # ------------------------------------------------------------------
 
-    (
+    comparison_path = (
         attempt_dir
         / "comparison.json"
-    ).write_text(
+    )
+
+    comparison_path.write_text(
         json.dumps(
             comparison,
             indent=4
@@ -1466,11 +2302,52 @@ def main():
         + "\n"
     )
 
+    # ------------------------------------------------------------------
+    # STEP 13
+    #
+    # Create final model and results packages.
+    # ------------------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("STEP 13: PACKAGE MODEL AND RESULTS")
+    print("=" * 70)
+
+    model_package = package_candidate(
+        attempt_dir=attempt_dir,
+
+        candidate_model=candidate_model,
+
+        work=work,
+
+        source_model_dir=model_dir,
+
+        source_model=source,
+
+        source_checkpoint=source_checkpoint,
+
+        source_epoch=source_epoch,
+
+        training_path=training_path,
+
+        validation_set=validation_set,
+
+        test_set=test_set,
+
+        comparison=comparison,
+
+        config_path=args.config,
+    )
+
+    # ------------------------------------------------------------------
+    # Final status
+    # ------------------------------------------------------------------
+
     (
         attempt_dir
         / "STATUS"
     ).write_text(
-        "CANDIDATE_READY_FOR_USER_APPROVAL\n"
+        "READY_FOR_MANUAL_REVIEW\n"
     )
 
     # ------------------------------------------------------------------
@@ -1492,19 +2369,88 @@ def main():
     print()
 
     print(
-        f"Candidate model: "
-        f"{candidate_model}"
+        "============================================================"
     )
 
     print(
-        f"Attempt directory: "
-        f"{attempt_dir}"
+        "CANDIDATE MODEL PACKAGE"
     )
+
+    print(
+        "============================================================"
+    )
+
+    print(
+        f"{model_package}"
+    )
+
+    print()
+
+    print(
+        "RESULTS"
+    )
+
+    print(
+        f"{attempt_dir / 'results'}"
+    )
+
+    print()
+
+    print(
+        "REVIEW COMPARISON"
+    )
+
+    print(
+        f"{attempt_dir / 'results' / 'comparison.json'}"
+    )
+
+    print()
+
+    print(
+        "IMPORTANT:"
+    )
+
+    print(
+        "The candidate has NOT been automatically promoted."
+    )
+
+    print(
+        "Manual review is required."
+    )
+
+    print()
+
+    print(
+        "If approved manually, copy the model directory to"
+    )
+
+    print(
+        "the next approved model directory, for example:"
+    )
+
+    print()
+
+    print(
+        f"models/CF3-CHF-CHF2_ea_002/"
+    )
+
+    print()
+
+    print(
+        "Do NOT overwrite the existing approved model."
+    )
+
+    print()
 
     return 0
 
 
+# ----------------------------------------------------------------------
+# Entry point
+# ----------------------------------------------------------------------
+
 if __name__ == "__main__":
+
     raise SystemExit(
         main()
     )
