@@ -1,5 +1,10 @@
 {
     "source_model": "CF3-CHF-CHF2_ea_001",
+
+    "environment": {
+	"conda_env": "mace_env",
+	"require_cuda": true
+    },
     "HPC": {
         "account": "chmdsh_project",
         "Runfolder": "HFC236ea_bootstrap",
@@ -14,8 +19,7 @@
     "validation": {
         "force_rmse_target_mev_A": 100.0,
         "energy_rmse_target_mev_atom": 100.0,
-        "high_error_force_threshold_mev_A": 100.0,
-        "max_new_configurations": 2000
+        "high_error_force_threshold_mev_A": 100.0
     },
     "mace": {
         "command": "mace_run_train",

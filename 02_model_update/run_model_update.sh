@@ -38,6 +38,45 @@
 
 set -euo pipefail
 
+# ============================================================
+# AUTOMATIC CONDA ENVIRONMENT FOR LAUNCHER
+# ============================================================
+
+ENV_NAME="mace_env"
+
+if ! command -v conda >/dev/null 2>&1; then
+    module load miniforge
+fi
+
+if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: Conda is not available after loading Miniforge."
+    exit 1
+fi
+
+CONDA_BASE="$(conda info --base)"
+
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+
+if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+    echo "ERROR: Conda environment '$ENV_NAME' does not exist."
+    echo ""
+    conda env list
+    exit 1
+fi
+
+conda activate "$ENV_NAME"
+
+PYTHON="$(command -v python)"
+
+if [[ -z "$PYTHON" ]]; then
+    echo "ERROR: Python was not found in environment '$ENV_NAME'."
+    exit 1
+fi
+
+echo "Automatic environment activation:"
+echo "  Conda environment : $ENV_NAME"
+echo "  Python             : $PYTHON"
+echo ""
 
 # ============================================================
 # LAUNCHER MODE
@@ -70,7 +109,7 @@ if [[ "${1:-}" != "--worker" ]]; then
     # ========================================================
 
     readarray -t CFG < <(
-        python - "$CONFIG" <<'PY'
+	"$PYTHON" - "$CONFIG" <<'PY'
 import json
 import sys
 
