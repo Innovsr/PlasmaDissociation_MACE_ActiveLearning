@@ -22,6 +22,7 @@ import sys
 import json
 import csv
 import shutil
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -930,12 +931,37 @@ def run_selection(
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(
+        description="Generate BOMD initial conditions."
+    )
+
+    parser.add_argument(
+        "--input",
+        default="../validation.json",
+        help=(
+            "Path to the workflow input JSON. "
+            "Default: ../validation.json"
+        )
+    )
+
+    args = parser.parse_args()
+
     log("=" * 70)
     log("BOMD SETUP STARTED")
     log("=" * 70)
 
-    #with open("../inputs.json") as f:
-    with open("../validation.json") as f:
+    input_file = Path(args.input).resolve()
+
+    if not input_file.exists():
+        raise FileNotFoundError(
+            f"Input configuration not found:\n{input_file}"
+        )
+
+    log(
+        f"Input configuration: {input_file}"
+    )
+
+    with open(input_file) as f:
         inputs = json.load(f)
 
     run_root = Path("..").resolve()

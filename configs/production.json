@@ -1,9 +1,9 @@
 {
-    "model": "V005",
+    "model": "CF3-CHF-CHF2_ea_001",
     "HPC": {
         "account": "chmdsh_project",
-        "Runfolder": "HFC236ea_active_learning",
-        "repeats": 100,
+        "Runfolder": "HFC236ea_bootstrap",
+        "repeats": 10,
         "cores": 80,
         "hours": 48,
         "memory": 128
@@ -15,10 +15,9 @@
     },
     "Propagation": {
         "Timestep": 10,
-        "Tot_timesteps": 100000
+        "Tot_timesteps": 100
     },
     "MACE": {
-        "model_file": "AUTO",
         "device": "cpu",
         "default_dtype": "float64"
     }
