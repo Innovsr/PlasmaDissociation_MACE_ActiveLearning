@@ -2,207 +2,173 @@
 
 import argparse
 import random
-
 from ase.io import read, write
 
 
-p = argparse.ArgumentParser()
+# ============================================================
+# ARGUMENTS
+# ============================================================
 
-p.add_argument(
+parser = argparse.ArgumentParser(
+    description=(
+        "Build a MACE training dataset by selecting a percentage "
+        "of configurations from the old and new datasets."
+    )
+)
+
+parser.add_argument(
     "--old",
-    required=True
+    required=True,
+    help="Old training dataset (.extxyz)"
 )
 
-p.add_argument(
+parser.add_argument(
     "--new",
-    required=True
+    required=True,
+    help="New/problematic dataset (.extxyz)"
 )
 
-p.add_argument(
+parser.add_argument(
     "--output",
-    required=True
+    required=True,
+    help="Output training dataset (.extxyz)"
 )
 
-p.add_argument(
+parser.add_argument(
     "--old-percent",
     type=float,
-    required=True
+    required=True,
+    help="Percentage of old configurations to include"
 )
 
-p.add_argument(
+parser.add_argument(
     "--new-percent",
     type=float,
-    required=True
+    required=True,
+    help="Percentage of new configurations to include"
 )
 
-p.add_argument(
-    "--total",
-    type=int,
-    required=True
-)
-
-p.add_argument(
+parser.add_argument(
     "--seed",
     type=int,
-    default=42
+    default=42,
+    help="Random seed"
 )
 
 
-a = p.parse_args()
+args = parser.parse_args()
 
 
 # ============================================================
 # CHECK PERCENTAGES
 # ============================================================
 
-if abs(
-    a.old_percent
-    + a.new_percent
-    - 100
-) > 1e-9:
-
+if not 0 <= args.old_percent <= 100:
     raise SystemExit(
-        "old+new must equal 100"
+        "ERROR: --old-percent must be between 0 and 100."
+    )
+
+if not 0 <= args.new_percent <= 100:
+    raise SystemExit(
+        "ERROR: --new-percent must be between 0 and 100."
     )
 
 
 # ============================================================
-# READ INPUT DATA
+# READ DATASETS
 # ============================================================
 
-old = read(
-    a.old,
-    index=":"
-)
+print()
+print("=" * 70)
+print("READING TRAINING DATA")
+print("=" * 70)
 
-new = read(
-    a.new,
-    index=":"
-)
+print(f"Old dataset : {args.old}")
+print(f"New dataset : {args.new}")
 
+old = read(args.old, index=":")
+new = read(args.new, index=":")
 
-# ============================================================
-# REQUESTED NUMBERS
-# ============================================================
+old_total = len(old)
+new_total = len(new)
 
-requested_old = round(
-    a.total
-    * a.old_percent
-    / 100
-)
-
-requested_new = (
-    a.total
-    - requested_old
-)
+print()
+print(f"Old configurations available : {old_total}")
+print(f"New configurations available : {new_total}")
 
 
 # ============================================================
-# ACTUAL NUMBERS
-#
-# If fewer configurations are available than requested,
-# use ALL available configurations instead of failing.
+# CALCULATE NUMBER TO SELECT
 # ============================================================
 
-actual_old = min(
-    requested_old,
-    len(old)
+old_number = round(
+    old_total * args.old_percent / 100.0
 )
 
-actual_new = min(
-    requested_new,
-    len(new)
+new_number = round(
+    new_total * args.new_percent / 100.0
 )
 
 
 # ============================================================
-# WARN IF DATA IS LIMITED
+# REPORT SELECTION
 # ============================================================
 
-data_limited = False
+print()
+print("=" * 70)
+print("DATA SELECTION")
+print("=" * 70)
 
+print(
+    f"Old data percentage requested : "
+    f"{args.old_percent:.2f}%"
+)
 
-if len(old) < requested_old:
+print(
+    f"New data percentage requested : "
+    f"{args.new_percent:.2f}%"
+)
 
-    data_limited = True
+print()
 
-    print()
-    print("=" * 70)
-    print("WARNING: NOT ENOUGH OLD TRAINING DATA")
-    print("=" * 70)
+print(
+    f"Old configurations selected  : "
+    f"{old_number} / {old_total}"
+)
 
-    print(
-        f"Requested old configurations : {requested_old}"
-    )
-
-    print(
-        f"Available old configurations : {len(old)}"
-    )
-
-    print(
-        "Using ALL available old configurations."
-    )
-
-    print("=" * 70)
-
-
-if len(new) < requested_new:
-
-    data_limited = True
-
-    print()
-    print("=" * 70)
-    print("WARNING: NOT ENOUGH NEW CONFIGURATIONS")
-    print("=" * 70)
-
-    print(
-        f"Requested new configurations : {requested_new}"
-    )
-
-    print(
-        f"Available new configurations : {len(new)}"
-    )
-
-    print(
-        "Using ALL available new configurations."
-    )
-
-    print("=" * 70)
+print(
+    f"New configurations selected  : "
+    f"{new_number} / {new_total}"
+)
 
 
 # ============================================================
 # RANDOM SELECTION
 # ============================================================
 
-random.seed(
-    a.seed
-)
-
+random.seed(args.seed)
 
 selected_old = random.sample(
     old,
-    actual_old
+    old_number
 )
 
 selected_new = random.sample(
     new,
-    actual_new
+    new_number
 )
 
 
 # ============================================================
-# COMBINE
+# COMBINE DATASETS
 # ============================================================
 
-out = (
-    selected_old
-    + selected_new
+training_data = (
+    selected_old +
+    selected_new
 )
 
-
-random.shuffle(
-    out
-)
+random.shuffle(training_data)
 
 
 # ============================================================
@@ -210,15 +176,17 @@ random.shuffle(
 # ============================================================
 
 write(
-    a.output,
-    out,
+    args.output,
+    training_data,
     format="extxyz"
 )
 
 
 # ============================================================
-# REPORT
+# FINAL REPORT
 # ============================================================
+
+actual_total = len(training_data)
 
 print()
 print("=" * 70)
@@ -226,60 +194,54 @@ print("TRAINING DATASET CREATED")
 print("=" * 70)
 
 print(
-    f"Output file              : {a.output}"
+    f"Output file                 : {args.output}"
 )
 
 print(
-    f"Requested total          : {a.total}"
+    f"Old configurations available: {old_total}"
 )
 
 print(
-    f"Actual total             : {len(out)}"
+    f"Old configurations selected : {old_number}"
 )
 
 print(
-    f"Requested old            : {requested_old}"
+    f"Old percentage used          : "
+    f"{args.old_percent:.2f}%"
+)
+
+print()
+
+print(
+    f"New configurations available: {new_total}"
 )
 
 print(
-    f"Actual old               : {actual_old}"
+    f"New configurations selected : {new_number}"
 )
 
 print(
-    f"Requested new            : {requested_new}"
+    f"New percentage used          : "
+    f"{args.new_percent:.2f}%"
 )
+
+print()
 
 print(
-    f"Actual new               : {actual_new}"
+    f"TOTAL configurations created : "
+    f"{actual_total}"
 )
 
-
-if len(out) > 0:
+if actual_total > 0:
 
     print(
-        f"Actual old percentage   : "
-        f"{actual_old / len(out) * 100:.2f}%"
+        f"Old fraction of final set   : "
+        f"{old_number / actual_total * 100:.2f}%"
     )
 
     print(
-        f"Actual new percentage   : "
-        f"{actual_new / len(out) * 100:.2f}%"
+        f"New fraction of final set   : "
+        f"{new_number / actual_total * 100:.2f}%"
     )
-
-
-if data_limited:
-
-    print()
-    print(
-        "NOTE: The requested total/ratio could not be "
-        "reached because one or both input datasets "
-        "contained fewer configurations than requested."
-    )
-
-    print(
-        "All available configurations from the limited "
-        "dataset were included."
-    )
-
 
 print("=" * 70)

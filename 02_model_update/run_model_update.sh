@@ -7,18 +7,33 @@
 #
 #     bash run_model_update.sh
 #
-# The script submits itself to SLURM.
-#
 # Worker mode:
 #
 #     bash run_model_update.sh --worker
 #
-# The worker runs inside the allocated GPU node.
+# ============================================================
 #
-# The project path is determined on the login node and passed
-# to the SLURM worker through PROJECT_ROOT.
+# AUTOMATIC RESTART DESIGN
+# ------------------------
 #
-# This keeps the script portable for other users.
+# A continuation job is submitted before training starts.
+#
+# The continuation uses afterany, BUT it does NOT blindly
+# continue.
+#
+# When the continuation starts it checks the parent job state.
+#
+# ONLY:
+#
+#     TIMEOUT
+#
+# allows the continuation to run MACE with --restart_latest.
+#
+# COMPLETED / CANCELLED / FAILED / etc.
+# causes the continuation to exit immediately.
+#
+# This prevents an infinite restart chain.
+#
 # ============================================================
 
 set -euo pipefail
@@ -30,17 +45,9 @@ set -euo pipefail
 
 if [[ "${1:-}" != "--worker" ]]; then
 
-    # --------------------------------------------------------
-    # This part runs BEFORE SLURM stages the script.
-    # Therefore BASH_SOURCE points to the real repository.
-    # --------------------------------------------------------
-
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
     PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
     CONFIG="$PROJECT_ROOT/configs/update_model.json"
-
 
     echo ""
     echo "============================================================"
@@ -51,20 +58,16 @@ if [[ "${1:-}" != "--worker" ]]; then
     echo "CONFIG       = $CONFIG"
     echo ""
 
-
     if [[ ! -f "$CONFIG" ]]; then
-
         echo "ERROR: Configuration file not found:"
         echo "$CONFIG"
-
         exit 1
-
     fi
 
 
-    # --------------------------------------------------------
-    # Read SLURM settings from update_model.json.
-    # --------------------------------------------------------
+    # ========================================================
+    # READ HPC SETTINGS
+    # ========================================================
 
     readarray -t CFG < <(
         python - "$CONFIG" <<'PY'
@@ -87,7 +90,6 @@ print(c["attempt_id"])
 PY
     )
 
-
     ACCOUNT="${CFG[0]}"
     CORES="${CFG[1]}"
     HOURS="${CFG[2]}"
@@ -96,23 +98,32 @@ PY
     ATTEMPT="${CFG[5]}"
 
 
-    echo "Account   = $ACCOUNT"
-    echo "CPUs      = $CORES"
-    echo "Time      = $HOURS"
-    echo "Memory    = ${MEM}G"
-    echo "Runfolder = $RUNFOLDER"
-    echo "Attempt   = $ATTEMPT"
+    # ========================================================
+    # SLURM LOG DIRECTORY
+    # ========================================================
 
+    SLURM_LOG_DIR="/mnt/scratch/$USER/$RUNFOLDER/02_model_update/$ATTEMPT/slurm_logs"
+
+    mkdir -p "$SLURM_LOG_DIR"
+
+
+    echo "Account     = $ACCOUNT"
+    echo "CPUs        = $CORES"
+    echo "Time        = $HOURS"
+    echo "Memory      = ${MEM}G"
+    echo "Runfolder   = $RUNFOLDER"
+    echo "Attempt     = $ATTEMPT"
+    echo "SLURM logs  = $SLURM_LOG_DIR"
+
+    echo "============================================================"
     echo ""
 
 
-    # --------------------------------------------------------
-    # Submit the first GPU worker.
-    #
-    # PROJECT_ROOT is explicitly passed to the worker.
-    # --------------------------------------------------------
+    # ========================================================
+    # SUBMIT FIRST GPU WORKER
+    # ========================================================
 
-    JOB_ID=$(
+    JOB_ID="$(
         sbatch \
             --parsable \
             --export=ALL,PROJECT_ROOT="$PROJECT_ROOT" \
@@ -123,11 +134,11 @@ PY
             --mem="${MEM}G" \
             --time="$HOURS" \
             --job-name=MACE_AL_update \
-            --output="$PROJECT_ROOT/model_update_%j.out" \
-            --error="$PROJECT_ROOT/model_update_%j.err" \
+            --output="$SLURM_LOG_DIR/model_update_%j.out" \
+            --error="$SLURM_LOG_DIR/model_update_%j.err" \
             "$SCRIPT_DIR/run_model_update.sh" \
             --worker
-    )
+    )"
 
 
     echo "============================================================"
@@ -135,19 +146,18 @@ PY
     echo "============================================================"
 
     echo "Job ID : $JOB_ID"
+    echo ""
 
-    echo ""
     echo "Monitor with:"
-    echo ""
     echo "    squeue -j $JOB_ID"
     echo ""
-    echo "Output:"
+
+    echo "SLURM output:"
+    echo "    $SLURM_LOG_DIR/model_update_${JOB_ID}.out"
     echo ""
-    echo "    $PROJECT_ROOT/model_update_${JOB_ID}.out"
-    echo ""
-    echo "Error:"
-    echo ""
-    echo "    $PROJECT_ROOT/model_update_${JOB_ID}.err"
+
+    echo "SLURM error:"
+    echo "    $SLURM_LOG_DIR/model_update_${JOB_ID}.err"
     echo ""
 
     echo "============================================================"
@@ -159,17 +169,7 @@ fi
 
 # ============================================================
 # WORKER MODE
-#
-# This part runs inside the SLURM GPU job.
 # ============================================================
-
-
-# ------------------------------------------------------------
-# Recover the real project root passed by the launcher.
-#
-# Do NOT use BASH_SOURCE here to determine the project path,
-# because SLURM may execute a staged copy from /var/spool/slurmd.
-# ------------------------------------------------------------
 
 ROOT="${PROJECT_ROOT:?PROJECT_ROOT was not supplied by launcher}"
 
@@ -193,7 +193,7 @@ echo ""
 
 
 # ============================================================
-# CHECK PROJECT FILES
+# CHECK REQUIRED FILES
 # ============================================================
 
 if [[ ! -f "$CONFIG" ]]; then
@@ -226,7 +226,6 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 
 conda activate mace_env
 
-
 PYTHON="$(command -v python)"
 
 echo "Python       : $PYTHON"
@@ -235,28 +234,14 @@ echo ""
 
 
 # ============================================================
-# VERIFY ENVIRONMENT
+# ENVIRONMENT CHECK
 # ============================================================
 
 echo "============================================================"
 echo "ENVIRONMENT CHECK"
 echo "============================================================"
 
-python -c "
-import sys
-import ase
-import mace
-import torch
-
-print('Python       :', sys.executable)
-print('ASE          :', ase.__version__)
-print('MACE         :', getattr(mace, '__version__', 'unknown'))
-print('PyTorch      :', torch.__version__)
-print('CUDA         :', torch.cuda.is_available())
-
-if torch.cuda.is_available():
-    print('GPU          :', torch.cuda.get_device_name(0))
-"
+"$PYTHON" -c 'import sys, ase, mace, torch; print("Python       :", sys.executable); print("ASE          :", ase.__version__); print("MACE         :", getattr(mace, "__version__", "unknown")); print("PyTorch      :", torch.__version__); print("CUDA         :", torch.cuda.is_available()); print("GPU          :", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None")'
 
 echo "============================================================"
 echo ""
@@ -285,7 +270,6 @@ print(c["attempt_id"])
 PY
 )
 
-
 ACCOUNT="${CFG[0]}"
 CORES="${CFG[1]}"
 HOURS="${CFG[2]}"
@@ -295,7 +279,7 @@ ATTEMPT="${CFG[5]}"
 
 
 # ============================================================
-# SCRATCH LOCATION
+# SCRATCH DIRECTORIES
 # ============================================================
 
 SCRATCH="/mnt/scratch/$USER/$RUNFOLDER/02_model_update/$ATTEMPT"
@@ -304,12 +288,169 @@ STATUS="$SCRATCH/STATUS"
 
 NEXT_JOB_FILE="$SCRATCH/next_job_id.txt"
 
+SLURM_LOG_DIR="$SCRATCH/slurm_logs"
 
 mkdir -p "$SCRATCH"
+mkdir -p "$SLURM_LOG_DIR"
 
 
 echo "Scratch      : $SCRATCH"
+echo "SLURM logs   : $SLURM_LOG_DIR"
 echo ""
+
+
+# ============================================================
+# PARENT JOB INFORMATION
+# ============================================================
+
+PARENT_JOB_ID="${PARENT_JOB_ID:-}"
+
+
+# ============================================================
+# CONTINUATION WORKER
+# ============================================================
+
+if [[ -n "$PARENT_JOB_ID" ]]; then
+
+    echo "============================================================"
+    echo "CONTINUATION WORKER"
+    echo "============================================================"
+
+    echo "Current job : $SLURM_JOB_ID"
+    echo "Parent job  : $PARENT_JOB_ID"
+    echo ""
+
+
+    # ========================================================
+    # FIND PARENT SLURM STATE
+    # ========================================================
+
+    PARENT_STATE="$(
+        sacct -X \
+            -j "$PARENT_JOB_ID" \
+            --format=State \
+            --noheader \
+            --parsable2 \
+            2>/dev/null |
+        head -n 1 |
+        tr -d '[:space:]'
+    )"
+
+
+    echo "Parent state: ${PARENT_STATE:-UNKNOWN}"
+    echo ""
+
+
+    # ========================================================
+    # ONLY TIMEOUT MAY CONTINUE
+    # ========================================================
+
+    case "$PARENT_STATE" in
+
+        TIMEOUT|TIMEOUT*)
+
+            echo "Parent job timed out."
+            echo "Automatic MACE restart is allowed."
+
+            ;;
+
+
+        CANCELLED|CANCELLED*)
+
+            echo "Parent job was CANCELLED."
+            echo "NO restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        FAILED|FAILED*)
+
+            echo "Parent job FAILED."
+            echo "NO restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        OUT_OF_MEMORY|OUT_OF_MEMORY*)
+
+            echo "Parent job ran out of memory."
+            echo "NO automatic restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        NODE_FAIL|NODE_FAIL*)
+
+            echo "Parent job failed because of NODE_FAIL."
+            echo "NO automatic restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        PREEMPTED|PREEMPTED*)
+
+            echo "Parent job was PREEMPTED."
+            echo "NO automatic restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        COMPLETED|COMPLETED*)
+
+            echo "Parent job COMPLETED normally."
+            echo "NO restart is required."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        DEADLINE|DEADLINE*)
+
+            echo "Parent job reached a deadline."
+            echo "NO automatic restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+
+        *)
+
+            echo "WARNING: Parent state could not be safely identified."
+            echo "Parent state = ${PARENT_STATE:-UNKNOWN}"
+            echo ""
+            echo "NO automatic restart will be submitted."
+            echo "Continuation worker terminating."
+
+            exit 0
+
+            ;;
+
+    esac
+
+
+    echo "============================================================"
+    echo ""
+
+fi
 
 
 # ============================================================
@@ -320,30 +461,45 @@ if [[ -f "$STATUS" ]]; then
 
     STATUS_VALUE="$(tr -d '[:space:]' < "$STATUS")"
 
+    echo "Current model-update STATUS:"
+    echo "$STATUS_VALUE"
+    echo ""
+
     case "$STATUS_VALUE" in
 
-        CANDIDATE_READY_FOR_USER_APPROVAL)
+        CANDIDATE_READY_FOR_USER_APPROVAL|READY_FOR_MANUAL_REVIEW)
 
             echo "Model update already completed."
+            echo "No further continuation is required."
+
             cat "$STATUS"
 
             exit 0
+
             ;;
+
 
         NO_HIGH_ERROR_CONFIGURATIONS)
 
             echo "No high-error configurations were found."
+            echo "No further continuation is required."
+
             cat "$STATUS"
 
             exit 0
+
             ;;
+
 
         MODEL_OK_USE_EXISTING)
 
             echo "Existing model already satisfies the criteria."
+            echo "No further continuation is required."
+
             cat "$STATUS"
 
             exit 0
+
             ;;
 
     esac
@@ -352,26 +508,14 @@ fi
 
 
 # ============================================================
-# AUTOMATIC RESTART CHAIN
+# AUTOMATIC TIMEOUT CONTINUATION
+# ============================================================
 #
-# A continuation job is submitted before the current training
-# starts.
+# One child is prepared before training.
 #
-# If this job reaches SLURM walltime:
+# The child will start because of afterany, but it will only
+# continue if the parent state is TIMEOUT.
 #
-#     current job -> TIMEOUT
-#             |
-#             v
-#     next job starts
-#             |
-#             v
-#     existing MACE checkpoint
-#             |
-#             v
-#     --restart_latest
-#
-# If the current job completes normally, the unnecessary
-# continuation job is cancelled.
 # ============================================================
 
 NEXT_JOB_ID=""
@@ -379,10 +523,36 @@ NEXT_JOB_ID=""
 
 if [[ "${MACE_AL_RESTART_CHAIN:-1}" == "1" ]]; then
 
-    NEXT_JOB_ID=$(
+    echo "============================================================"
+    echo "PREPARING AUTOMATIC TIMEOUT CONTINUATION"
+    echo "============================================================"
+
+    echo "Current job : $SLURM_JOB_ID"
+
+    if [[ -n "$PARENT_JOB_ID" ]]; then
+
+        echo "Parent job  : $PARENT_JOB_ID"
+        echo "Parent state: TIMEOUT"
+        echo "This is a genuine continuation."
+
+    else
+
+        echo "This is the first model-update worker."
+        echo "Preparing first timeout continuation."
+
+    fi
+
+    echo ""
+
+
+    # ========================================================
+    # SUBMIT ONE CHILD
+    # ========================================================
+
+    NEXT_JOB_ID="$(
         sbatch \
             --parsable \
-            --export=ALL,PROJECT_ROOT="$ROOT" \
+            --export=ALL,PROJECT_ROOT="$ROOT",PARENT_JOB_ID="$SLURM_JOB_ID" \
             --dependency="afterany:${SLURM_JOB_ID}" \
             --account="$ACCOUNT" \
             --partition=gpu \
@@ -391,27 +561,36 @@ if [[ "${MACE_AL_RESTART_CHAIN:-1}" == "1" ]]; then
             --mem="${MEM}G" \
             --time="$HOURS" \
             --job-name=MACE_AL_update \
-            --output="$ROOT/model_update_%j.out" \
-            --error="$ROOT/model_update_%j.err" \
+            --output="$SLURM_LOG_DIR/model_update_%j.out" \
+            --error="$SLURM_LOG_DIR/model_update_%j.err" \
             "$SCRIPT_DIR/run_model_update.sh" \
             --worker
-    )
+    )"
 
 
     echo "$NEXT_JOB_ID" > "$NEXT_JOB_FILE"
 
 
-    echo "============================================================"
-    echo "AUTOMATIC RESTART CHAIN"
-    echo "============================================================"
-
     echo "Current job : $SLURM_JOB_ID"
     echo "Next job    : $NEXT_JOB_ID"
     echo "Dependency  : afterany:$SLURM_JOB_ID"
+    echo ""
+
+    echo "The next job will ONLY continue if this job"
+    echo "actually reaches SLURM TIMEOUT."
 
     echo ""
-    echo "If this job times out, the next job will start."
-    echo "The next job will continue from the MACE checkpoint."
+
+    echo "If this job completes normally, the next job"
+    echo "will be cancelled."
+
+    echo ""
+
+    echo "If this job is cancelled or fails, the next job"
+    echo "will start briefly, detect the parent state,"
+    echo "and exit without creating another job."
+
+    echo ""
 
     echo "============================================================"
     echo ""
@@ -430,6 +609,7 @@ echo "============================================================"
 nvidia-smi
 
 echo ""
+
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-not_set}"
 
 echo "============================================================"
@@ -442,12 +622,9 @@ echo ""
 
 MODEL_UPDATE_EXIT=0
 
-
 set +e
 
-"$PYTHON" \
-    "$ROOT/model_update.py" \
-    --config "$CONFIG"
+"$PYTHON" "$ROOT/model_update.py" --config "$CONFIG"
 
 MODEL_UPDATE_EXIT=$?
 
@@ -481,35 +658,52 @@ if [[ "$MODEL_UPDATE_EXIT" -eq 0 ]]; then
     fi
 
 
-    # --------------------------------------------------------
-    # Cancel the pre-submitted continuation job if the current
-    # model update reached a terminal state.
-    # --------------------------------------------------------
+    # ========================================================
+    # CANCEL PRE-SUBMITTED CONTINUATION
+    # ========================================================
 
     if [[ -n "$NEXT_JOB_ID" ]]; then
 
         case "$FINAL_STATUS" in
 
-            CANDIDATE_READY_FOR_USER_APPROVAL|\
-            NO_HIGH_ERROR_CONFIGURATIONS|\
-            MODEL_OK_USE_EXISTING)
+            CANDIDATE_READY_FOR_USER_APPROVAL|READY_FOR_MANUAL_REVIEW|NO_HIGH_ERROR_CONFIGURATIONS|MODEL_OK_USE_EXISTING)
 
                 echo ""
-                echo "Cancelling unnecessary continuation job:"
-                echo "$NEXT_JOB_ID"
+                echo "============================================================"
+                echo "CANCELLING UNNECESSARY CONTINUATION"
+                echo "============================================================"
+
+                echo "Continuation job: $NEXT_JOB_ID"
 
                 scancel "$NEXT_JOB_ID" || true
 
+                echo "Continuation cancelled."
+
+                echo "============================================================"
+
                 ;;
+
 
             *)
 
                 echo ""
                 echo "WARNING:"
                 echo "model_update.py returned successfully but"
-                echo "no terminal STATUS was found."
+                echo "no recognised terminal STATUS was found."
 
-                echo "The continuation job will remain pending."
+                echo ""
+
+                if [[ -f "$STATUS" ]]; then
+                    echo "STATUS:"
+                    cat "$STATUS"
+                else
+                    echo "NO STATUS FILE"
+                fi
+
+                echo ""
+
+                echo "The continuation job will remain available"
+                echo "for a genuine SLURM TIMEOUT."
 
                 ;;
 
@@ -518,6 +712,9 @@ if [[ "$MODEL_UPDATE_EXIT" -eq 0 ]]; then
     fi
 
 
+    echo ""
+    echo "============================================================"
+    echo "MODEL UPDATE WORKER FINISHED SUCCESSFULLY"
     echo "============================================================"
 
     exit 0
@@ -537,10 +734,9 @@ echo "============================================================"
 echo "Exit code: $MODEL_UPDATE_EXIT"
 
 
-# ------------------------------------------------------------
-# This was a normal application failure rather than a SLURM
-# walltime timeout, so cancel the continuation job.
-# ------------------------------------------------------------
+# ============================================================
+# CANCEL PRE-SUBMITTED CONTINUATION
+# ============================================================
 
 if [[ -n "$NEXT_JOB_ID" ]]; then
 
@@ -548,11 +744,14 @@ if [[ -n "$NEXT_JOB_ID" ]]; then
     echo "Cancelling continuation job because"
     echo "model_update.py failed."
 
+    echo "Continuation job: $NEXT_JOB_ID"
+
     scancel "$NEXT_JOB_ID" || true
 
 fi
 
 
+echo ""
 echo "============================================================"
 
 exit "$MODEL_UPDATE_EXIT"

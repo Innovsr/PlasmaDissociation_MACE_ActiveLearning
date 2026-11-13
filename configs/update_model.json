@@ -1,6 +1,5 @@
 {
     "source_model": "CF3-CHF-CHF2_ea_001",
-    "old_epoch": 6,
     "HPC": {
         "account": "chmdsh_project",
         "Runfolder": "HFC236ea_bootstrap",
@@ -9,9 +8,8 @@
         "memory": 200
     },
     "training_update": {
-        "old_data_percent": 80,
-        "new_data_percent": 20,
-        "total_configurations": 10000
+        "old_data_percent": 100,
+        "new_data_percent": 100
     },
     "validation": {
         "force_rmse_target_mev_A": 100.0,
@@ -38,11 +36,11 @@
         "energy_weight": 1.0,
         "forces_weight": 2.0,
         "lr": 0.0002,
-        "max_num_epochs": 50,
+        "max_num_epochs": 150,
         "patience": 5,
         "eval_interval": 1,
         "default_dtype": "float64",
         "seed": 42
     },
-    "attempt_id": "attempt_001"
+    "attempt_id": "attempt_002"
 }

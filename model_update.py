@@ -1447,62 +1447,112 @@ def main():
         )
 
         return 0
-
     # ------------------------------------------------------------------
     # STEP 4
     #
     # Select high-error configurations ONLY from training pool.
+    #
+    # IMPORTANT:
+    # There is NO maximum number of configurations here.
+    # Every configuration whose force error exceeds the threshold
+    # is retained as candidate new data.
     # ------------------------------------------------------------------
-
+    
     print()
     print("=" * 70)
-    print(
-        "STEP 4: SELECT HIGH-ERROR "
-        "TRAINING CONFIGURATIONS"
-    )
+    print("STEP 4: SELECT HIGH-ERROR TRAINING CONFIGURATIONS")
     print("=" * 70)
-
+    
     high_error_csv = (
         attempt_dir
         / "high_error.csv"
     )
-
+    
     run_command(
         [
             sys.executable,
-
+    
             str(
                 root
                 / "select_high_error.py"
             ),
-
+    
             "--results",
-
+    
             str(
                 training_pool_results
             ),
-
+    
             "--output",
-
+    
             str(
                 high_error_csv
             ),
-
-            "--max-configurations",
-
-            str(
-                config["validation"]
-                ["max_new_configurations"]
-            ),
-
+    
             "--force-threshold",
-
+    
             str(
                 config["validation"]
                 ["high_error_force_threshold_mev_A"]
             ),
         ]
     )
+
+#    # ------------------------------------------------------------------
+#    # STEP 4
+#    #
+#    # Select high-error configurations ONLY from training pool.
+#    # ------------------------------------------------------------------
+#
+#    print()
+#    print("=" * 70)
+#    print(
+#        "STEP 4: SELECT HIGH-ERROR "
+#        "TRAINING CONFIGURATIONS"
+#    )
+#    print("=" * 70)
+#
+#    high_error_csv = (
+#        attempt_dir
+#        / "high_error.csv"
+#    )
+#
+#    run_command(
+#        [
+#            sys.executable,
+#
+#            str(
+#                root
+#                / "select_high_error.py"
+#            ),
+#
+#            "--results",
+#
+#            str(
+#                training_pool_results
+#            ),
+#
+#            "--output",
+#
+#            str(
+#                high_error_csv
+#            ),
+#
+#            "--max-configurations",
+#
+#            str(
+#                config["validation"]
+#                ["max_new_configurations"]
+#            ),
+#
+#            "--force-threshold",
+#
+#            str(
+#                config["validation"]
+#                ["high_error_force_threshold_mev_A"]
+#            ),
+#        ]
+#    )
 
     # ------------------------------------------------------------------
     # Extract selected configurations from TRAINING POOL.
@@ -1604,91 +1654,222 @@ def main():
     # STEP 6
     #
     # Build updated training set.
+    #
+    # IMPORTANT:
+    #
+    # There is NO total_configurations parameter.
+    #
+    # old_data_percent controls the percentage of the OLD training
+    # dataset that is selected.
+    #
+    # new_data_percent controls the percentage of the NEW
+    # high-error dataset that is selected.
+    #
+    # Examples:
+    #
+    # old_data_percent = 80
+    # new_data_percent = 100
+    #
+    # means:
+    #
+    #     80% of old training data
+    #     100% of available high-error new data
+    #
+    # The final number of configurations is therefore determined
+    # automatically by the sizes of the two datasets.
     # ------------------------------------------------------------------
-
+    
     print()
     print("=" * 70)
     print("STEP 6: BUILD UPDATED TRAINING DATASET")
     print("=" * 70)
-
-    total_configurations = (
-        config["training_update"]
-        .get(
-            "total_configurations"
-        )
-    )
-
-    if total_configurations is None:
-
-        total_configurations = len(
-            read(
-                str(
-                    old_training_extxyz
-                ),
-                index=":"
-            )
-        )
-
+    
     training_path = (
         attempt_dir
         / "training.extxyz"
     )
-
+    
+    old_percent = float(
+        config["training_update"]
+        ["old_data_percent"]
+    )
+    
+    new_percent = float(
+        config["training_update"]
+        ["new_data_percent"]
+    )
+    
+    # --------------------------------------------------------------
+    # Validate percentages
+    # --------------------------------------------------------------
+    
+    if not 0.0 <= old_percent <= 100.0:
+        raise SystemExit(
+            "ERROR: old_data_percent must be between 0 and 100."
+        )
+    
+    if not 0.0 <= new_percent <= 100.0:
+        raise SystemExit(
+            "ERROR: new_data_percent must be between 0 and 100."
+        )
+    
+    print()
+    print(
+        f"Old training data percentage : "
+        f"{old_percent:.2f}%"
+    )
+    
+    print(
+        f"New training data percentage : "
+        f"{new_percent:.2f}%"
+    )
+    
+    print()
+    
     run_command(
         [
             sys.executable,
-
+    
             str(
                 root
                 / "build_training_set.py"
             ),
-
+    
             "--old",
-
+    
             str(
                 old_training_extxyz
             ),
-
+    
             "--new",
-
+    
             str(
                 new_problematic
             ),
-
+    
             "--output",
-
+    
             str(
                 training_path
             ),
-
+    
             "--old-percent",
-
+    
             str(
-                config["training_update"]
-                ["old_data_percent"]
+                old_percent
             ),
-
+    
             "--new-percent",
-
+    
             str(
-                config["training_update"]
-                ["new_data_percent"]
+                new_percent
             ),
-
-            "--total",
-
-            str(
-                total_configurations
-            ),
-
+    
             "--seed",
-
+    
             str(
                 config["mace"]
                 ["seed"]
             ),
         ]
     )
+    
+    print()
+    
+    print(
+        f"Final training dataset: "
+        f"{training_path}"
+    )
+
+#    # ------------------------------------------------------------------
+#    # STEP 6
+#    #
+#    # Build updated training set.
+#    # ------------------------------------------------------------------
+#
+#    print()
+#    print("=" * 70)
+#    print("STEP 6: BUILD UPDATED TRAINING DATASET")
+#    print("=" * 70)
+#
+#    total_configurations = (
+#        config["training_update"]
+#        .get(
+#            "total_configurations"
+#        )
+#    )
+#
+#    if total_configurations is None:
+#
+#        total_configurations = len(
+#            read(
+#                str(
+#                    old_training_extxyz
+#                ),
+#                index=":"
+#            )
+#        )
+#
+#    training_path = (
+#        attempt_dir
+#        / "training.extxyz"
+#    )
+#
+#    run_command(
+#        [
+#            sys.executable,
+#
+#            str(
+#                root
+#                / "build_training_set.py"
+#            ),
+#
+#            "--old",
+#
+#            str(
+#                old_training_extxyz
+#            ),
+#
+#            "--new",
+#
+#            str(
+#                new_problematic
+#            ),
+#
+#            "--output",
+#
+#            str(
+#                training_path
+#            ),
+#
+#            "--old-percent",
+#
+#            str(
+#                config["training_update"]
+#                ["old_data_percent"]
+#            ),
+#
+#            "--new-percent",
+#
+#            str(
+#                config["training_update"]
+#                ["new_data_percent"]
+#            ),
+#
+#            "--total",
+#
+#            str(
+#                total_configurations
+#            ),
+#
+#            "--seed",
+#
+#            str(
+#                config["mace"]
+#                ["seed"]
+#            ),
+#        ]
+#    )
 
     # ------------------------------------------------------------------
     # STEP 7
