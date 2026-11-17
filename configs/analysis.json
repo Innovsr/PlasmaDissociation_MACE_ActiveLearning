@@ -1,0 +1,57 @@
+{
+    "output_dir": "./results",
+
+    "datasets": {
+
+        "bootstrap": {
+            "enabled": true,
+            "path": "/mnt/scratch/lgjs798/HFC236ea_bootstrap/00_bootstrap",
+
+            "metadata": {
+                "molecule": "CF3-CHF-CHF2_ea",
+                "temperature_K": 5000,
+                "multiplicity": 3,
+                "method": "QChem/BOMD"
+            },
+
+            "target_timestep": 1000,
+            "bond_break_factor": 1.35
+        },
+
+        "validation": {
+            "enabled": false,
+            "path": "/mnt/scratch/lgjs798/HFC236ea_bootstrap/01_validation",
+
+            "metadata": {
+                "molecule": "CF3-CHF-CHF2_ea",
+                "temperature_K": 5000,
+                "multiplicity": 3,
+                "method": "QChem/BOMD"
+            },
+
+            "target_timestep": 1000,
+            "bond_break_factor": 1.35
+        },
+
+        "production": {
+            "enabled": true,
+            "path": "/mnt/scratch/lgjs798/HFC236ea_bootstrap/03_production",
+
+            "metadata": {
+                "molecule": "CF3-CHF-CHF2_ea",
+                "temperature_K": 400,
+                "multiplicity": 3,
+                "method": "MACE"
+            },
+
+            "target_timestep": 1000,
+            "bond_break_factor": 1.35
+        }
+    },
+
+    "comparison": {
+        "enabled": true,
+        "qualitative_only": true,
+        "all_pairwise": false
+    }
+}

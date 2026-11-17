@@ -1,10 +1,10 @@
 {
     "HPC": {
         "account": "chmdsh_project",
-        "Runfolder": "HFC236ea_bootstrap",
-        "repeats": 30,
+        "Runfolder": "HFC236ea_model_2000",
+        "repeats": 80,
         "cores": 8,
-        "hours": "00:15:00",
+        "hours": "48:00:00",
         "memory": 16
     },
     "Molecule_data": {
@@ -17,26 +17,26 @@
     },
     "Propagation": {
         "Timestep": 10,
-        "Tot_timesteps": 250
+        "Tot_timesteps": 18000
     },
     "Trajectory_selection": {
         "enabled": 1,
-        "momentum_samples": 100000,
+        "momentum_samples": 200000,
         "categories": [
             {
                 "name": "C-C",
                 "bonds": [],
-                "select": 10
+                "select": 30
             },
             {
                 "name": "C-F",
                 "bonds": [],
-                "select": 10
+                "select": 30
             },
             {
                 "name": "C-H",
                 "bonds": [],
-                "select": 10
+                "select": 20
             }
         ]
     }

@@ -1,17 +1,17 @@
 {
     "HPC": {
         "account": "chmdsh_project",
-        "Runfolder": "HFC236ea_bootstrap",
-        "repeats": 50,
+        "Runfolder": "HFC236ea_model_2000",
+        "repeats": 80,
         "cores": 8,
-        "bomd_time": "00:15:00",
+        "bomd_time": "48:00:00",
         "memory": 16
     },
 
     "Molecule_data": {
         "Molecule": "CF3-CHF-CHF2_ea",
         "Multiplicity": 3,
-        "Temp": 5000
+        "Temp": 2000
     },
 
     "Elec_structure": {
@@ -20,7 +20,7 @@
 
     "Propagation": {
         "Timestep": 10,
-        "Tot_timesteps": 100
+        "Tot_timesteps": 18000
     },
 
     "dataset_split": {
@@ -49,7 +49,7 @@
         "energy_weight": 1.0,
         "forces_weight": 2.0,
         "lr": 0.0002,
-        "max_num_epochs": 50,
+        "max_num_epochs": 100,
         "patience": 5,
         "eval_interval": 1,
         "default_dtype": "float64",

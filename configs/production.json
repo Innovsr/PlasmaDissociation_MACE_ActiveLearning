@@ -8,6 +8,9 @@
         "hours": 48,
         "memory": 128
     },
+    "Elec_structure": {
+    	"method": "MACE"
+    },
     "Molecule_data": {
         "Molecule": "CF3-CHF-CHF2_ea",
         "Multiplicity": 3,
@@ -15,7 +18,7 @@
     },
     "Propagation": {
         "Timestep": 10,
-        "Tot_timesteps": 100
+        "Tot_timesteps": 1000000000
     },
     "MACE": {
         "device": "cpu",
