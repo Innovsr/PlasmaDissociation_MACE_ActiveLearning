@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts.machine import get_machine, get_scratch_root
+
 
 ROOT = Path(__file__).resolve().parent
 
@@ -19,17 +21,24 @@ def load_json(path):
 
 
 # ============================================================
-# MACHINE / SCRATCH
+# MACHINE CONFIGURATION
 # ============================================================
+
+def get_machine_config(cfg):
+    """
+    Return:
+
+        machine name
+        machine-specific configuration
+    """
+
+    return get_machine(cfg)
+
 
 def scratch_root(cfg):
     """
-    Return the machine-specific scratch directory.
-
-    This uses the machine configuration through get_scratch_root().
+    Return the machine-specific bootstrap scratch directory.
     """
-
-    from scripts.machine import get_scratch_root
 
     return (
         get_scratch_root(cfg)
@@ -39,109 +48,159 @@ def scratch_root(cfg):
 
 
 # ============================================================
+# SLURM CONFIGURATION
+# ============================================================
+
+def get_bomd_slurm_settings(cfg):
+    """
+    Read the BOMD partition/QOS from configs/machines.json.
+    """
+
+    machine, machine_cfg = get_machine_config(cfg)
+
+    bomd_cfg = machine_cfg.get("bomd", {})
+
+    partition = bomd_cfg.get("partition")
+
+    if not partition:
+        raise RuntimeError(
+            f"No BOMD partition configured for machine '{machine}'."
+        )
+
+    qos = bomd_cfg.get("qos")
+
+    return machine, partition, qos
+
+
+def slurm_directives(cfg):
+    """
+    Generate machine-specific Slurm directives.
+    """
+
+    machine, partition, qos = get_bomd_slurm_settings(cfg)
+
+    lines = [
+        f"#SBATCH --partition={partition}"
+    ]
+
+    if qos:
+        lines.append(
+            f"#SBATCH --qos={qos}"
+        )
+
+    return "\n".join(lines)
+
+
+# ============================================================
 # Q-CHEM CONFIGURATION
 # ============================================================
 
-def get_qchem_root(cfg):
+def get_qchem_config(cfg):
     """
-    Return the Q-Chem installation to use.
+    Read the Q-Chem configuration from configs/machines.json.
 
-    Priority:
+    Aire:
+        qchem_module
 
-    1. HPC.qchem_root from config, if provided.
-    2. Machine-specific Calder installation.
-    3. QCHEM_HOME environment variable.
-
-    This avoids relying on a Q-Chem module that may not exist
-    on the current machine.
+    Calder:
+        qchem
     """
 
-    hpc = cfg.get("HPC", {})
+    machine, machine_cfg = get_machine_config(cfg)
 
-    # --------------------------------------------------------
-    # 1. Explicit path from configuration
-    # --------------------------------------------------------
+    bomd_cfg = machine_cfg.get("bomd", {})
 
-    configured = hpc.get("qchem_root")
+    if machine == "aire":
 
-    if configured:
-        path = Path(
-            os.path.expandvars(
-                os.path.expanduser(configured)
+        qchem_module = bomd_cfg.get(
+            "qchem_module"
+        )
+
+        if not qchem_module:
+            raise RuntimeError(
+                "No qchem_module configured for Aire."
+            )
+
+        return {
+            "machine": machine,
+            "mode": "module",
+            "module": qchem_module
+        }
+
+    if machine == "calder":
+
+        qchem_root = bomd_cfg.get(
+            "qchem"
+        )
+
+        if not qchem_root:
+            raise RuntimeError(
+                "No Q-Chem installation configured "
+                "for Calder."
+            )
+
+        qchem_root = qchem_root.replace(
+            "$USER",
+            os.environ.get(
+                "USER",
+                os.environ.get(
+                    "LOGNAME",
+                    "unknown"
+                )
             )
         )
 
-        if path.exists():
-            return path
-
-        raise RuntimeError(
-            "Configured Q-Chem installation does not exist:\n"
-            f"  {path}"
+        qchem_root = os.path.expandvars(
+            os.path.expanduser(qchem_root)
         )
 
-    # --------------------------------------------------------
-    # 2. Calder local installation
-    # --------------------------------------------------------
+        qchem_path = Path(qchem_root)
 
-    user = os.environ.get(
-        "USER",
-        os.environ.get("LOGNAME", "unknown")
-    )
+        if not qchem_path.exists():
+            raise RuntimeError(
+                "Configured Calder Q-Chem installation "
+                "does not exist:\n"
+                f"  {qchem_path}"
+            )
 
-    calder_qchem = Path(
-        f"/scratch-calder/users/{user}/software/qchem-6.0.2"
-    )
-
-    if calder_qchem.exists():
-        return calder_qchem
-
-    # --------------------------------------------------------
-    # 3. Existing QCHEM_HOME
-    # --------------------------------------------------------
-
-    qchem_home = os.environ.get("QCHEM_HOME")
-
-    if qchem_home:
-        path = Path(qchem_home)
-
-        if path.exists():
-            return path
+        return {
+            "machine": machine,
+            "mode": "direct",
+            "root": qchem_path
+        }
 
     raise RuntimeError(
-        "Could not locate Q-Chem installation.\n\n"
-        "Checked:\n"
-        f"  {calder_qchem}\n"
-        "  $QCHEM_HOME\n\n"
-        "Set HPC.qchem_root in the configuration if necessary."
+        f"Unsupported machine '{machine}'."
     )
 
 
-def qchem_environment(cfg, stage, scratch_subdir):
+def qchem_environment(
+    cfg,
+    qchem_scratch
+):
     """
-    Generate the shell commands required to initialise Q-Chem.
+    Generate the Q-Chem environment for a Slurm job.
 
-    This deliberately does NOT use:
+    Aire:
+        load Q-Chem module.
 
-        module load qchem/6.0.2
-
-    because Calder does not provide that module.
-
-    Instead it directly uses the Q-Chem installation.
+    Calder:
+        use the local Q-Chem installation directly.
     """
 
-    qchem_root = get_qchem_root(cfg)
+    qchem = get_qchem_config(cfg)
 
-    qchem_scratch = (
-        Path(stage)
-        / scratch_subdir
-    )
+    if qchem["mode"] == "module":
 
-    return f"""
-# ------------------------------------------------------------
+        return f"""
+# ============================================================
 # Q-CHEM
-# ------------------------------------------------------------
+# ============================================================
 
-export QCHEM_HOME="{qchem_root}"
+module unload qchem 2>/dev/null || true
+module load {qchem["module"]}
+
+export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
 
 export QC="$QCHEM_HOME"
 export QCAUX="$QC/qcaux"
@@ -154,10 +213,11 @@ export QCSCRATCH="{qchem_scratch}"
 
 mkdir -p "$QCSCRATCH"
 
-# Q-Chem licence
-export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
+echo "Q-Chem module : {qchem["module"]}"
+echo "Q-Chem root   : $QC"
+echo "Q-Chem exe    : $QCPROG"
+echo "Q-Chem scratch: $QCSCRATCH"
 
-# Basic validation
 if [ ! -x "$QCPROG" ]; then
     echo "ERROR: Q-Chem executable not found:"
     echo "  $QCPROG"
@@ -169,16 +229,52 @@ if [ ! -d "$QCAUX" ]; then
     echo "  $QCAUX"
     exit 1
 fi
-
-echo "Q-Chem installation:"
-echo "  $QC"
-
-echo "Q-Chem executable:"
-echo "  $QCPROG"
-
-echo "Q-Chem scratch:"
-echo "  $QCSCRATCH"
 """
+
+    if qchem["mode"] == "direct":
+
+        root = qchem["root"]
+
+        return f"""
+# ============================================================
+# Q-CHEM
+# ============================================================
+
+export QCHEM_HOME="{root}"
+
+export QC="$QCHEM_HOME"
+export QCAUX="$QC/qcaux"
+export QCPROG="$QC/exe/qcprog.exe"
+export QCPROG_S="$QC/exe/qcprog.exe_s"
+
+export PATH="$QC/bin:$QC/exe:$PATH"
+
+export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
+
+export QCSCRATCH="{qchem_scratch}"
+
+mkdir -p "$QCSCRATCH"
+
+echo "Q-Chem root   : $QC"
+echo "Q-Chem exe    : $QCPROG"
+echo "Q-Chem scratch: $QCSCRATCH"
+
+if [ ! -x "$QCPROG" ]; then
+    echo "ERROR: Q-Chem executable not found:"
+    echo "  $QCPROG"
+    exit 1
+fi
+
+if [ ! -d "$QCAUX" ]; then
+    echo "ERROR: Q-Chem qcaux directory not found:"
+    echo "  $QCAUX"
+    exit 1
+fi
+"""
+
+    raise RuntimeError(
+        "Unknown Q-Chem configuration mode."
+    )
 
 
 # ============================================================
@@ -229,17 +325,12 @@ def create_runtime_files(cfg, stage):
         "Propagation": cfg["Propagation"]
     }
 
-    # --------------------------------------------------------
-    # setup.py expects validation.json
-    # --------------------------------------------------------
-
     setup_cfg = dict(runtime)
 
     setup_cfg["HPC"]["repeats"] = (
         cfg["HPC"]["repeats"]
     )
 
-    # Bootstrap deliberately disables trajectory selection.
     setup_cfg["Trajectory_selection"] = {
         "enabled": 0
     }
@@ -250,10 +341,6 @@ def create_runtime_files(cfg, stage):
             indent=4
         )
     )
-
-    # --------------------------------------------------------
-    # main.py/global_vars.py reads ../../inputs.json
-    # --------------------------------------------------------
 
     (stage / "inputs.json").write_text(
         json.dumps(
@@ -303,16 +390,24 @@ def submit_setup(cfg, stage):
 
     h = cfg["HPC"]
 
-    qchem_root = get_qchem_root(cfg)
+    partition_directives = (
+        slurm_directives(cfg)
+    )
 
     qchem_scratch = (
         stage / "setup" / "tmp"
+    )
+
+    qchem_env = qchem_environment(
+        cfg,
+        qchem_scratch
     )
 
     setup_script.write_text(
         f"""#!/bin/bash
 
 #SBATCH --account={h["account"]}
+{partition_directives}
 #SBATCH --job-name=BootstrapSetup
 #SBATCH --time=02:00:00
 #SBATCH --cpus-per-task={h["cores"]}
@@ -322,26 +417,7 @@ def submit_setup(cfg, stage):
 
 set -euo pipefail
 
-
-# ============================================================
-# Q-CHEM
-# ============================================================
-
-export QCHEM_HOME="{qchem_root}"
-
-export QC="$QCHEM_HOME"
-export QCAUX="$QC/qcaux"
-export QCPROG="$QC/exe/qcprog.exe"
-export QCPROG_S="$QC/exe/qcprog.exe_s"
-
-export PATH="$QC/bin:$QC/exe:$PATH"
-
-export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
-
-export QCSCRATCH="{qchem_scratch}"
-
-mkdir -p "$QCSCRATCH"
-
+{qchem_env}
 
 echo "=============================================="
 echo "BOOTSTRAP SETUP"
@@ -350,41 +426,13 @@ echo "=============================================="
 echo "Hostname:"
 hostname
 
-echo "Q-Chem:"
-echo "$QC"
-
-echo "QCPROG:"
-echo "$QCPROG"
-
-echo "QCSCRATCH:"
-echo "$QCSCRATCH"
+echo "Machine:"
+echo "{get_machine_config(cfg)[0]}"
 
 echo "Python:"
 {sys.executable} --version
 
 echo "=============================================="
-
-
-# ------------------------------------------------------------
-# Validate Q-Chem
-# ------------------------------------------------------------
-
-if [ ! -x "$QCPROG" ]; then
-    echo "ERROR: Q-Chem executable not found:"
-    echo "$QCPROG"
-    exit 1
-fi
-
-if [ ! -d "$QCAUX" ]; then
-    echo "ERROR: Q-Chem qcaux directory not found:"
-    echo "$QCAUX"
-    exit 1
-fi
-
-
-# ============================================================
-# RUN SETUP
-# ============================================================
 
 cd "{stage}/setup"
 
@@ -425,12 +473,25 @@ def submit_bomd_array(
         stage / "bootstrap_array.sh"
     )
 
-    qchem_root = get_qchem_root(cfg)
+    partition_directives = (
+        slurm_directives(cfg)
+    )
+
+    qchem_scratch = (
+        f"{stage}/repetitions/"
+        f"rep-$SLURM_ARRAY_TASK_ID/tmp"
+    )
+
+    qchem_env = qchem_environment(
+        cfg,
+        qchem_scratch
+    )
 
     array_script.write_text(
         f"""#!/bin/bash
 
 #SBATCH --account={h["account"]}
+{partition_directives}
 #SBATCH --job-name=BootstrapBOMD
 #SBATCH --time={h["bomd_time"]}
 #SBATCH --cpus-per-task={h["cores"]}
@@ -441,26 +502,7 @@ def submit_bomd_array(
 
 set -euo pipefail
 
-
-# ============================================================
-# Q-CHEM
-# ============================================================
-
-export QCHEM_HOME="{qchem_root}"
-
-export QC="$QCHEM_HOME"
-export QCAUX="$QC/qcaux"
-export QCPROG="$QC/exe/qcprog.exe"
-export QCPROG_S="$QC/exe/qcprog.exe_s"
-
-export PATH="$QC/bin:$QC/exe:$PATH"
-
-export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
-
-export QCSCRATCH="{stage}/repetitions/rep-$SLURM_ARRAY_TASK_ID/tmp"
-
-mkdir -p "$QCSCRATCH"
-
+{qchem_env}
 
 echo "=============================================="
 echo "BOOTSTRAP BOMD"
@@ -472,38 +514,13 @@ echo "$SLURM_ARRAY_TASK_ID"
 echo "Hostname:"
 hostname
 
-echo "Q-Chem:"
-echo "$QC"
+echo "Machine:"
+{get_machine_config(cfg)[0]}
 
-echo "QCPROG:"
-echo "$QCPROG"
-
-echo "QCSCRATCH:"
-echo "$QCSCRATCH"
+echo "Python:"
+{sys.executable} --version
 
 echo "=============================================="
-
-
-# ------------------------------------------------------------
-# Validate Q-Chem
-# ------------------------------------------------------------
-
-if [ ! -x "$QCPROG" ]; then
-    echo "ERROR: Q-Chem executable not found:"
-    echo "$QCPROG"
-    exit 1
-fi
-
-if [ ! -d "$QCAUX" ]; then
-    echo "ERROR: Q-Chem qcaux directory not found:"
-    echo "$QCAUX"
-    exit 1
-fi
-
-
-# ============================================================
-# RUN BOMD
-# ============================================================
 
 cd "{stage}/repetitions/rep-$SLURM_ARRAY_TASK_ID"
 
@@ -546,22 +563,18 @@ def main():
         args.config
     )
 
-    # --------------------------------------------------------
-    # Determine scratch directory
-    # --------------------------------------------------------
+    machine, machine_cfg = (
+        get_machine_config(cfg)
+    )
 
     stage = scratch_root(cfg)
 
-    print(
-        "=============================================="
-    )
+    print("==============================================")
+    print("BOOTSTRAP WORKFLOW")
+    print("==============================================")
 
     print(
-        "BOOTSTRAP WORKFLOW"
-    )
-
-    print(
-        "=============================================="
+        f"Machine       : {machine}"
     )
 
     print(
@@ -583,43 +596,41 @@ def main():
         f"{cfg['HPC']['repeats']}"
     )
 
-    # --------------------------------------------------------
-    # Q-Chem check before submitting jobs
-    # --------------------------------------------------------
-
-    qchem_root = get_qchem_root(
-        cfg
-    )
-
     print(
-        f"Q-Chem        : {qchem_root}"
+        f"BOMD partition: "
+        f"{machine_cfg['bomd']['partition']}"
     )
 
-    print(
-        "=============================================="
-    )
+    if machine_cfg["bomd"].get("qos"):
+        print(
+            f"BOMD QOS      : "
+            f"{machine_cfg['bomd']['qos']}"
+        )
 
-    # --------------------------------------------------------
-    # Create runtime files
-    # --------------------------------------------------------
+    qchem_cfg = get_qchem_config(cfg)
+
+    if qchem_cfg["mode"] == "direct":
+        print(
+            f"Q-Chem       : "
+            f"{qchem_cfg['root']}"
+        )
+    else:
+        print(
+            f"Q-Chem module: "
+            f"{qchem_cfg['module']}"
+        )
+
+    print("==============================================")
 
     create_runtime_files(
         cfg,
         stage
     )
 
-    # --------------------------------------------------------
-    # Copy initial geometry
-    # --------------------------------------------------------
-
     copy_geometry(
         cfg,
         stage
     )
-
-    # --------------------------------------------------------
-    # Submit setup
-    # --------------------------------------------------------
 
     setup_job = submit_setup(
         cfg,
@@ -630,19 +641,11 @@ def main():
         f"Bootstrap setup job: {setup_job}"
     )
 
-    # --------------------------------------------------------
-    # Submit BOMD array
-    # --------------------------------------------------------
-
     bomd_job = submit_bomd_array(
         cfg,
         stage,
         setup_job
     )
-
-    # --------------------------------------------------------
-    # Automatic bootstrap controller
-    # --------------------------------------------------------
 
     controller_script = (
         ROOT
@@ -673,7 +676,6 @@ def main():
 
             f"--error={stage}/logs/controller_%j.err",
 
-            # Use the real repository controller
             str(controller_script),
 
             "--stage",
@@ -692,7 +694,6 @@ def main():
             "--job-id",
             str(bomd_job),
 
-            # Explicit repository root
             "--repo-root",
             str(ROOT)
         ],
