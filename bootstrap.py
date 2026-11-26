@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from scripts.machine import get_machine, get_scratch_root
 
 
 ROOT = Path(__file__).resolve().parent
@@ -17,14 +18,20 @@ ROOT = Path(__file__).resolve().parent
 def load_json(path):
     return json.loads(Path(path).read_text())
 
-
-def scratch_root(runfolder):
+def scratch_root(cfg):
     return (
-        Path("/mnt/scratch")
-        / os.environ.get("USER", os.environ.get("LOGNAME", "unknown"))
-        / runfolder
+        get_scratch_root(cfg)
+        / cfg["HPC"]["Runfolder"]
         / "00_bootstrap"
     )
+
+#def scratch_root(runfolder):
+#    return (
+#        Path("/mnt/scratch")
+#        / os.environ.get("USER", os.environ.get("LOGNAME", "unknown"))
+#        / runfolder
+#        / "00_bootstrap"
+#    )
 
 
 def create_runtime_files(cfg, stage):
@@ -105,6 +112,18 @@ def submit_setup(cfg, stage):
     setup_script = stage / "setup_bootstrap.sh"
 
     h = cfg["HPC"]
+    machine, machine_cfg = get_machine(cfg)
+
+    if machine == "aire":
+        qchem_setup = """module unload qchem 2>/dev/null || true
+    module load qchem/6.0.2
+    export QC="$QCHEM_HOME"
+    """
+    elif machine == "calder":
+        qchem_setup = """export QC="/scratch-calder/users/$USER/software/qchem-6.0.2"
+    """
+    else:
+        raise ValueError(f"Unsupported machine: {machine}")
 
     setup_script.write_text(
         f"""#!/bin/bash
@@ -118,12 +137,15 @@ def submit_setup(cfg, stage):
 
 set -euo pipefail
 
-module unload qchem 2>/dev/null || true
-module load qchem/6.0.2
+#module unload qchem 2>/dev/null || true
+#module load qchem/6.0.2
+#
+#export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
+#
+#export QC="$QCHEM_HOME"
+{qchem_setup}
 
 export LM_LICENSE_FILE=27000@uol-lnx-lic01.leeds.ac.uk
-
-export QC="$QCHEM_HOME"
 export QCAUX="$QC/qcaux"
 export QCPROG="$QC/exe/qcprog.exe"
 export QCPROG_S="$QC/exe/qcprog.exe_s"
@@ -225,9 +247,10 @@ def main():
 
     cfg = load_json(args.config)
 
-    stage = scratch_root(
-        cfg["HPC"]["Runfolder"]
-    )
+    stage = scratch_root(cfg)
+    #stage = scratch_root(
+    #    cfg["HPC"]["Runfolder"]
+    #)
 
     print("==============================================")
     print("BOOTSTRAP WORKFLOW")
