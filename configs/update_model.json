@@ -6,6 +6,7 @@
 	"require_cuda": true
     },
     "HPC": {
+	"machine": "calder",
         "account": "chmdsh_project",
         "Runfolder": "HFC236ea_bootstrap",
         "cores": 16,

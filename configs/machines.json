@@ -1,0 +1,49 @@
+{
+    "aire": {
+        "scratch_root": "/mnt/scratch/$USER",
+
+        "bomd": {
+            "partition": "aire-cpu-genoa",
+            "qchem_module": "qchem/6.0.2"
+        },
+
+        "gpu": {
+            "partition": "aire-gpu-lovelace",
+            "gres": "gpu:1"
+        },
+
+        "modules": {
+            "miniforge": "miniforge"
+        },
+
+        "environments": {
+            "bomd": "plasma",
+            "mace": "mace_env"
+        }
+    },
+
+    "calder": {
+        "scratch_root": "/scratch-calder/users/$USER",
+
+        "bomd": {
+            "partition": "calder-cpu-turin",
+            "qos": "funded_qos",
+            "qchem": "/scratch-calder/users/$USER/software/qchem-6.0.2"
+        },
+
+        "gpu": {
+            "partition": "calder-gpu-hopper",
+            "gres": "gpu:nvidia_h200:1"
+        },
+
+        "modules": {
+            "calder": "calder/cpu",
+            "miniforge": "miniforge3/26.1.1-3"
+        },
+
+        "environments": {
+            "bomd": "plasma",
+            "mace": "mace_env"
+        }
+    }
+}

@@ -1,6 +1,7 @@
 {
     "model": "CF3-CHF-CHF2_ea_001",
     "HPC": {
+	"machine": "calder",
         "account": "chmdsh_project",
         "Runfolder": "HFC236ea_bootstrap",
         "repeats": 10,

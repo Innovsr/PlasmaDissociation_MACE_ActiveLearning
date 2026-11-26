@@ -1,5 +1,6 @@
 {
     "HPC": {
+	"machine": "calder",
         "account": "chmdsh_project",
         "Runfolder": "HFC236ea_model_2000",
         "repeats": 80,
